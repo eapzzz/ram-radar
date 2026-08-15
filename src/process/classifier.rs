@@ -128,8 +128,8 @@ impl ProcessClassifier {
             || name == "waybar" || name == "swaybg" || name == "swaync" 
             || name == "rofi" || name == "wofi" || name == "mako" || name == "dunst"
             || name.contains("wireplumber") || name.contains("pipewire")
-            || name.contains("xdg-desktop-por") || name.contains("xdg-desktop-portal") 
-            || name.contains("polkit-kde") || name.to_lowercase() == "xwayland" {
+            || name.contains("xdg-desktop-por")
+            || name.contains("polkit-kde") || name == "xwayland" {
             return (
                 "hyprland_desktop".to_string(),
                 "Hyprland Compositor & Shell".to_string(),
@@ -212,7 +212,7 @@ impl ProcessClassifier {
         let clean_name = if !p.name.is_empty() {
             p.name.clone()
         } else if !p.exe.is_empty() {
-            p.exe.split('/').last().unwrap_or("Process").to_string()
+            p.exe.rsplit('/').next().unwrap_or("Process").to_string()
         } else {
             format!("PID_{}", p.pid)
         };

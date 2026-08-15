@@ -137,7 +137,7 @@ The optimized binary is compiled to `target/release/ram-radar`.
 Add the following line to your Hyprland configuration (`~/.config/hypr/hyprland.conf`) to launch RamRadar via hotkey (e.g., `$mainMod + Shift + ESC`):
 
 ```ini
-bind = $mainMod SHIFT, Escape, exec, /home/julian/Documents/cookie/projects/ram-radar/target/release/ram-radar
+bind = $mainMod SHIFT, Escape, exec, ram-radar
 ```
 
 ### Floating Window Rules:
@@ -151,9 +151,12 @@ windowrulev2 = opacity 0.96 0.92, class:^(ram-radar)$
 ```
 
 ### Desktop Application Launcher (`.desktop`):
-Install the desktop launcher to integrate with Rofi, Wofi, Walker, or ToFi:
+The launcher and the keybind above both call `ram-radar` by name, so put the
+binary on your `PATH` first, then install the desktop entry:
 
 ```bash
+install -Dm755 target/release/ram-radar ~/.local/bin/ram-radar
+
 cp ram-radar.desktop ~/.local/share/applications/
 update-desktop-database ~/.local/share/applications/ 2>/dev/null || true
 ```

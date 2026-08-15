@@ -56,6 +56,16 @@ fn run_cli_summary() {
         Theme::format_kb(sys_mem.swap_total_kb)
     );
 
+    if sys_mem.estimated_proc_count > 0 {
+        println!(
+            "\x1b[33m⚠  {} process(es) totalling {} are owned by another user: smaps_rollup is\n\
+             \x20  unreadable for them, so RSS is counted in place of PSS (marked ~).\n\
+             \x20  Run as root for exact figures.\x1b[0m\n",
+            sys_mem.estimated_proc_count,
+            Theme::format_kb(sys_mem.estimated_pss_kb)
+        );
+    }
+
     println!("{:<32} {:<10} {:<15} {:<15} {:<8}", "APPLICATION / GROUP", "PROCS", "REAL (PSS)", "TRADITIONAL (RSS)", "% RAM");
     println!("{:-<86}", "");
 
@@ -68,7 +78,11 @@ fn run_cli_summary() {
             "{:<32} {:<10} \x1b[1;36m{:<15}\x1b[0m {:<15} \x1b[1;33m{:>5.1}%\x1b[0m",
             format!("{} {}", g.icon, g.display_name),
             format!("{} procs", g.processes.len()),
-            Theme::format_kb(g.total_pss_kb),
+            format!(
+                "{}{}",
+                if g.estimated_procs > 0 { "~" } else { "" },
+                Theme::format_kb(g.total_pss_kb)
+            ),
             Theme::format_kb(g.total_rss_kb),
             pss_pct
         );

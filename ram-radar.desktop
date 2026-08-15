@@ -2,7 +2,8 @@
 Name=RamRadar
 GenericName=Memory & Process Inspector
 Comment=High-Tech Linux PSS RAM and Process Tree HUD for Hyprland & Wayland
-Exec=/home/julian/Documents/cookie/projects/ram-radar/target/release/ram-radar
+Exec=ram-radar
+TryExec=ram-radar
 Icon=utilities-system-monitor
 Terminal=false
 Type=Application
