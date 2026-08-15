@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use egui::{Color32, Frame, Margin, RichText, Rounding, Stroke, Ui};
+use egui::{Color32, Frame, Margin, RichText, Rounding, Stroke, Ui, Vec2, Sense};
 use crate::process::types::{AppGroup, ProcessInfo, SystemMemoryInfo};
 use crate::ui::theme::Theme;
 
@@ -18,266 +18,168 @@ impl AppCardView {
         let pss_pct = (group.total_pss_kb as f32 / total_kb as f32) * 100.0;
         let col = Color32::from_rgb(group.accent_color[0], group.accent_color[1], group.accent_color[2]);
 
-        let mut toggle_clicked = false;
-        let mut kill_group = false;
+        let mut toggle = false;
+        let mut kill = false;
 
-        // Custom Card Container
         Frame::none()
-            .fill(Theme::BG_CARD)
-            .stroke(Stroke::new(1.0_f32, if is_expanded { col } else { Theme::BORDER_GLASS }))
-            .rounding(Rounding::same(10.0))
-            .inner_margin(Margin::same(12.0))
+            .fill(Theme::BG_SURFACE)
+            .stroke(Stroke::new(1.0_f32, if is_expanded { col } else { Theme::BORDER_DEFAULT }))
+            .rounding(Rounding::same(8.0))
+            .inner_margin(Margin::same(10.0))
             .show(ui, |ui| {
-                // 1. Top Main Row
+                // Draw left accent bar
+                let rect = ui.max_rect();
+                let accent_bar = egui::Rect::from_min_size(
+                    rect.left_top(),
+                    Vec2::new(3.0, rect.height()),
+                );
+                ui.painter().rect_filled(accent_bar, Rounding::same(2.0), if is_expanded { col } else { Theme::BORDER_DEFAULT });
+
                 ui.horizontal(|ui| {
-                    // Expand/Collapse Chevron Button
-                    let arrow = if is_expanded { "▼" } else { "▶" };
-                    if ui.button(RichText::new(arrow).color(col).size(13.0).strong()).clicked() {
-                        toggle_clicked = true;
+                    // Expand chevron
+                    let chevron = if is_expanded { "▾" } else { "▸" };
+                    if ui.button(RichText::new(chevron).size(14.0).color(col)).clicked() {
+                        toggle = true;
                     }
 
-                    // Large App Icon
-                    ui.label(RichText::new(group.icon).size(18.0));
+                    // Icon
+                    ui.label(RichText::new(group.icon).size(16.0));
 
-                    // App Title & Category Badge
+                    // Name + badges
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(&group.display_name)
-                                    .color(Color32::WHITE)
-                                    .size(15.0)
-                                    .strong(),
-                            );
-
-                            // Category Tag Pill
-                            ui.label(
-                                RichText::new(format!(" {} ", group.category.title()))
-                                    .size(10.0)
-                                    .color(Theme::TEXT_MUTED)
-                                    .background_color(Theme::BG_PILL),
-                            );
-
-                            // Process Count Pill
-                            ui.label(
-                                RichText::new(format!(" {} procesów ", group.processes.len()))
-                                    .size(10.5)
-                                    .color(Theme::TEXT_SECONDARY)
-                                    .background_color(Color32::from_rgb(25, 33, 50)),
-                            );
+                            ui.label(RichText::new(&group.display_name).size(13.5).color(Color32::WHITE).strong());
+                            ui.label(RichText::new(group.category.short_title()).size(9.5).color(Theme::TEXT_MUTED).background_color(Theme::BG_BADGE));
+                            ui.label(RichText::new(format!("{} procs", group.processes.len())).size(9.5).color(Theme::TEXT_SECONDARY).background_color(Theme::BG_BADGE));
                         });
                     });
 
-                    // Right Side Metrics (Direct fixed layout, rock solid)
+                    // Right metrics
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Kill Group Button
-                        if ui.button(
-                            RichText::new("✖ Zakończ")
-                                .color(Theme::ACCENT_ROSE)
-                                .size(11.0)
-                                .strong(),
-                        ).on_hover_text("Zakończ wszystkie procesy tej aplikacji (SIGTERM)").clicked() {
-                            kill_group = true;
+                        if ui.button(RichText::new("✕ Kill").size(10.0).color(Theme::ACCENT_RED)).on_hover_text("SIGTERM all").clicked() {
+                            kill = true;
                         }
 
-                        // CPU Meter
                         ui.add_space(6.0);
-                        let cpu_color = if group.total_cpu > 10.0 { Theme::ACCENT_AMBER } else { Theme::TEXT_SECONDARY };
-                        ui.label(
-                            RichText::new(format!("{:>4.1}% CPU", group.total_cpu))
-                                .color(cpu_color)
-                                .monospace()
-                                .size(12.0),
-                        );
+                        let cpu_col = if group.total_cpu > 10.0 { Theme::ACCENT_ORANGE } else { Theme::TEXT_SECONDARY };
+                        ui.label(RichText::new(format!("{:.1}%", group.total_cpu)).size(11.0).color(cpu_col).monospace());
 
-                        // Traditional RSS Pill
-                        ui.add_space(10.0);
-                        ui.label(
-                            RichText::new(format!("RSS: {}", Theme::format_kb(group.total_rss_kb)))
-                                .color(Theme::TEXT_MUTED)
-                                .size(11.5)
-                                .monospace(),
-                        );
+                        ui.add_space(6.0);
+                        ui.label(RichText::new(format!("RSS {}", Theme::format_kb(group.total_rss_kb))).size(10.5).color(Theme::TEXT_MUTED).monospace());
 
-                        // Real PSS Metric with Glow Badge
-                        ui.add_space(10.0);
-                        let pss_str = Theme::format_kb(group.total_pss_kb);
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                RichText::new(pss_str)
-                                    .color(Theme::ACCENT_CYAN)
-                                    .size(14.0)
-                                    .strong()
-                                    .monospace(),
-                            );
-                            ui.label(
-                                RichText::new(format!(" {:.1}% ", pss_pct))
-                                    .color(Color32::BLACK)
-                                    .size(10.5)
-                                    .strong()
-                                    .background_color(Theme::ACCENT_CYAN),
-                            );
-                        });
+                        ui.add_space(6.0);
+
+                        // PSS value + percent badge
+                        ui.label(RichText::new(format!("{:.1}%", pss_pct)).size(9.5).color(Color32::BLACK).strong().background_color(col));
+                        ui.label(RichText::new(Theme::format_kb(group.total_pss_kb)).size(12.5).color(col).strong().monospace());
+
+                        // Mini progress bar
+                        let bar_w = 40.0_f32;
+                        let bar_h = 3.0_f32;
+                        let (bar_rect, _) = ui.allocate_exact_size(Vec2::new(bar_w, bar_h), Sense::hover());
+                        Theme::draw_bar(ui.painter(), bar_rect, pss_pct / 100.0, col);
                     });
                 });
 
-                // 2. Expanded Subprocess List
+                // Expanded processes
                 if is_expanded && !group.processes.is_empty() {
-                    ui.add_space(8.0);
-                    ui.separator();
                     ui.add_space(6.0);
-
-                    // Subprocess Table Header
-                    ui.horizontal(|ui| {
-                        ui.add_space(20.0);
-                        ui.label(RichText::new("PID & ROLA PROCESU").size(10.5).color(Theme::TEXT_MUTED).strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(RichText::new("AKCJA").size(10.5).color(Theme::TEXT_MUTED).strong());
-                            ui.add_space(12.0);
-                            ui.label(RichText::new("CPU").size(10.5).color(Theme::TEXT_MUTED).strong());
-                            ui.add_space(16.0);
-                            ui.label(RichText::new("RSS").size(10.5).color(Theme::TEXT_MUTED).strong());
-                            ui.add_space(16.0);
-                            ui.label(RichText::new("REALNY RAM (PSS)").size(10.5).color(Theme::ACCENT_CYAN).strong());
-                            ui.add_space(16.0);
-                            ui.label(RichText::new("WĄTKI").size(10.5).color(Theme::TEXT_MUTED).strong());
-                        });
-                    });
-
+                    ui.separator();
                     ui.add_space(4.0);
 
+                    // Table header
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+                        ui.label(RichText::new("PID / ROLE").size(9.5).color(Theme::TEXT_MUTED));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(RichText::new("ACTION").size(9.5).color(Theme::TEXT_MUTED));
+                            ui.add_space(8.0);
+                            ui.label(RichText::new("CPU").size(9.5).color(Theme::TEXT_MUTED));
+                            ui.add_space(12.0);
+                            ui.label(RichText::new("RSS").size(9.5).color(Theme::TEXT_MUTED));
+                            ui.add_space(12.0);
+                            ui.label(RichText::new("PSS").size(9.5).color(Theme::ACCENT_BLUE));
+                            ui.add_space(12.0);
+                            ui.label(RichText::new("THR").size(9.5).color(Theme::TEXT_MUTED));
+                        });
+                    });
+                    ui.add_space(2.0);
+
                     for proc in &group.processes {
-                        Self::render_subprocess_row(ui, proc, status_msg);
+                        Self::render_proc(ui, proc, status_msg);
                     }
                 }
             });
 
-        if toggle_clicked {
-            if is_expanded {
-                expanded_groups.remove(&group.key);
-            } else {
-                expanded_groups.insert(group.key.clone());
-            }
+        if toggle {
+            if is_expanded { expanded_groups.remove(&group.key); } else { expanded_groups.insert(group.key.clone()); }
         }
 
-        if kill_group {
+        if kill {
             let count = group.processes.len();
             for p in &group.processes {
-                unsafe {
-                    libc::kill(p.pid as i32, libc::SIGTERM);
-                }
+                unsafe { libc::kill(p.pid as i32, libc::SIGTERM); }
             }
-            *status_msg = Some((
-                format!("Zakończono aplikację {} ({} procesów)", group.display_name, count),
-                std::time::Instant::now(),
-            ));
+            *status_msg = Some((format!("Terminated {} ({} procs)", group.display_name, count), std::time::Instant::now()));
         }
     }
 
-    fn render_subprocess_row(
-        ui: &mut Ui,
-        proc: &ProcessInfo,
-        status_msg: &mut Option<(String, std::time::Instant)>,
-    ) {
+    fn render_proc(ui: &mut Ui, proc: &ProcessInfo, status_msg: &mut Option<(String, std::time::Instant)>) {
         let mut kill_pid = None;
         let mut copy_pid = false;
 
         Frame::none()
             .fill(Theme::BG_SUBROW)
-            .rounding(Rounding::same(6.0))
-            .inner_margin(Margin::symmetric(10.0, 6.0))
-            .stroke(Stroke::new(0.5_f32, Theme::BORDER_GLASS))
+            .rounding(Rounding::same(4.0))
+            .inner_margin(Margin::symmetric(8.0, 4.0))
+            .stroke(Stroke::new(0.5_f32, Theme::BORDER_MUTED))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.add_space(12.0);
+                    ui.add_space(8.0);
 
-                    // PID Button (Click to Copy)
-                    if ui.button(
-                        RichText::new(format!("PID {}", proc.pid))
-                            .size(10.5)
-                            .monospace()
-                            .color(Theme::TEXT_SECONDARY),
-                    ).on_hover_text("Kliknij, aby skopiować PID").clicked() {
+                    if ui.button(RichText::new(format!("{}", proc.pid)).size(10.0).monospace().color(Theme::TEXT_SECONDARY))
+                        .on_hover_text("Copy PID").clicked() {
                         copy_pid = true;
                     }
 
-                    // Role Badge
-                    ui.label(
-                        RichText::new(&proc.role_hint)
-                            .color(Theme::ACCENT_VIOLET)
-                            .size(12.0)
-                            .strong(),
-                    );
+                    ui.label(RichText::new(&proc.role_hint).size(10.5).color(Theme::ACCENT_PURPLE).strong());
+                    ui.label(RichText::new(&proc.name).size(10.0).color(Theme::TEXT_MUTED));
 
-                    // Process Executable Name
-                    ui.label(
-                        RichText::new(&proc.name)
-                            .color(Theme::TEXT_MUTED)
-                            .size(11.0),
-                    );
-
-                    // Right Side Subprocess Metrics
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        // Kill Button
-                        if ui.small_button(RichText::new("✖").color(Theme::ACCENT_ROSE)).on_hover_text(format!("Zakończ PID {}", proc.pid)).clicked() {
+                        if ui.small_button(RichText::new("✕").color(Theme::ACCENT_RED)).on_hover_text(format!("Kill {}", proc.pid)).clicked() {
                             kill_pid = Some(proc.pid);
                         }
-
-                        // CPU
+                        ui.add_space(6.0);
+                        let cpu_col = if proc.cpu_usage > 5.0 { Theme::ACCENT_ORANGE } else { Theme::TEXT_MUTED };
+                        ui.label(RichText::new(format!("{:.1}%", proc.cpu_usage)).size(10.0).color(cpu_col).monospace());
                         ui.add_space(10.0);
-                        let cpu_color = if proc.cpu_usage > 5.0 { Theme::ACCENT_AMBER } else { Theme::TEXT_MUTED };
-                        ui.label(RichText::new(format!("{:>4.1}%", proc.cpu_usage)).color(cpu_color).size(11.0).monospace());
-
-                        // RSS
-                        ui.add_space(14.0);
-                        ui.label(RichText::new(Theme::format_kb(proc.rss_kb)).color(Theme::TEXT_MUTED).size(11.0).monospace());
-
-                        // PSS (Real RAM)
-                        ui.add_space(14.0);
-                        ui.label(RichText::new(Theme::format_kb(proc.pss_kb)).color(Theme::ACCENT_CYAN).size(11.5).strong().monospace());
-
-                        // Threads
-                        ui.add_space(14.0);
-                        ui.label(RichText::new(format!("{} thr", proc.threads)).color(Theme::TEXT_MUTED).size(10.5));
+                        ui.label(RichText::new(Theme::format_kb(proc.rss_kb)).size(10.0).color(Theme::TEXT_MUTED).monospace());
+                        ui.add_space(10.0);
+                        ui.label(RichText::new(Theme::format_kb(proc.pss_kb)).size(10.0).color(Theme::ACCENT_BLUE).strong().monospace());
+                        ui.add_space(10.0);
+                        ui.label(RichText::new(format!("{}", proc.threads)).size(10.0).color(Theme::TEXT_MUTED));
                     });
                 });
 
-                // Command line preview snippet
+                // Cmdline preview
                 if !proc.cmdline.is_empty() {
-                    let preview = if proc.cmdline.len() > 120 {
-                        format!("{}...", &proc.cmdline[..120])
-                    } else {
-                        proc.cmdline.clone()
-                    };
+                    let preview = if proc.cmdline.len() > 100 { format!("{}…", &proc.cmdline[..100]) } else { proc.cmdline.clone() };
                     ui.horizontal(|ui| {
-                        ui.add_space(24.0);
-                        ui.label(
-                            RichText::new(format!("$ {}", preview))
-                                .size(9.5)
-                                .color(Color32::from_rgb(90, 105, 135))
-                                .monospace(),
-                        );
+                        ui.add_space(16.0);
+                        ui.label(RichText::new(format!("$ {}", preview)).size(9.0).color(Color32::from_rgb(75, 85, 100)).monospace());
                     });
                 }
             });
 
-        ui.add_space(2.0);
+        ui.add_space(1.0);
 
         if let Some(pid) = kill_pid {
-            unsafe {
-                libc::kill(pid as i32, libc::SIGTERM);
-            }
-            *status_msg = Some((
-                format!("Wysłano sygnał SIGTERM do PID {}", pid),
-                std::time::Instant::now(),
-            ));
+            unsafe { libc::kill(pid as i32, libc::SIGTERM); }
+            *status_msg = Some((format!("SIGTERM → PID {}", pid), std::time::Instant::now()));
         }
-
         if copy_pid {
             ui.output_mut(|o| o.copied_text = proc.pid.to_string());
-            *status_msg = Some((
-                format!("Skopiowano PID {} do schowka", proc.pid),
-                std::time::Instant::now(),
-            ));
+            *status_msg = Some((format!("Copied PID {}", proc.pid), std::time::Instant::now()));
         }
     }
 }

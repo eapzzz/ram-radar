@@ -1,9 +1,11 @@
 [Desktop Entry]
 Name=RamRadar
-Comment=Realistic Linux RAM and Process Tree Inspector for Hyprland
+GenericName=Memory & Process Inspector
+Comment=High-Tech Linux PSS RAM and Process Tree HUD for Hyprland & Wayland
 Exec=/home/julian/Documents/cookie/projects/ram-radar/target/release/ram-radar
 Icon=utilities-system-monitor
 Terminal=false
 Type=Application
-Categories=System;Monitor;
-Keywords=system;process;task;manager;memory;ram;hyprland;
+Categories=System;Monitor;Utility;
+Keywords=system;process;task;manager;memory;ram;pss;hyprland;wayland;radar;
+StartupWMClass=ram-radar

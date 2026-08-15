@@ -96,9 +96,6 @@ impl SystemScanner {
         let stat_str = fs::read_to_string(path.join("stat")).ok()?;
         let (name, ppid, utime_stime, threads) = Self::parse_stat(&stat_str)?;
 
-        // Filter out idle kernel workers if they have 0 memory and ppid 2 (optional, but keep clean)
-        // We'll keep them in System category if they have memory
-
         // 2. Read /proc/[pid]/cmdline
         let cmdline = match fs::read(path.join("cmdline")) {
             Ok(bytes) => {
@@ -122,9 +119,8 @@ impl SystemScanner {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
 
-        // 4. Read /proc/[pid]/smaps_rollup (Super fast PSS, RSS, USS)
+        // 4. Read /proc/[pid]/smaps_rollup (Fast PSS, RSS, USS)
         let (pss_kb, rss_kb, uss_kb, swap_kb) = Self::read_smaps_rollup(pid).unwrap_or_else(|| {
-            // Fallback to /proc/[pid]/status if smaps_rollup is unavailable
             Self::read_status_mem(pid)
         });
 
@@ -135,7 +131,6 @@ impl SystemScanner {
                 if let Some((prev_ticks, prev_time)) = map.insert(pid, (utime_stime, now)) {
                     let elapsed_secs = (now - prev_time).as_secs_f32();
                     if elapsed_secs > 0.05 && utime_stime >= prev_ticks {
-                        // In Linux, 100 ticks = 1 sec usually (sysconf(_SC_CLK_TCK))
                         let delta_ticks = (utime_stime - prev_ticks) as f32;
                         let usage = (delta_ticks / 100.0) / elapsed_secs * 100.0;
                         usage.clamp(0.0, 3200.0)
@@ -171,18 +166,12 @@ impl SystemScanner {
     }
 
     fn parse_stat(stat_str: &str) -> Option<(String, u32, u64, u32)> {
-        // Format: pid (comm with possible spaces) state ppid ...
         let start_paren = stat_str.find('(')?;
         let end_paren = stat_str.rfind(')')?;
         let name = stat_str[start_paren + 1..end_paren].to_string();
 
         let remainder = &stat_str[end_paren + 1..].trim();
         let fields: Vec<&str> = remainder.split_whitespace().collect();
-        // fields[0] is state (e.g. 'S')
-        // fields[1] is ppid
-        // fields[11] is utime (14 in 1-based)
-        // fields[12] is stime (15 in 1-based)
-        // fields[17] is num_threads (20 in 1-based)
 
         let ppid = fields.get(1)?.parse::<u32>().ok()?;
         let utime = fields.get(11)?.parse::<u64>().unwrap_or(0);
@@ -255,12 +244,12 @@ impl SystemScanner {
         let exe_lower = exe.to_lowercase();
 
         if cmd_lower.contains("--type=gpu-process") {
-            "GPU Process (Render engine / OpenGL)".to_string()
+            "GPU Process (Render Engine / OpenGL)".to_string()
         } else if cmd_lower.contains("--type=renderer") {
             if cmd_lower.contains("--extension-process") {
                 "Renderer (Browser Extension)".to_string()
             } else {
-                "Renderer (Web Page / Tab Content)".to_string()
+                "Renderer (Web Tab Content)".to_string()
             }
         } else if cmd_lower.contains("--type=zygote") {
             "Zygote (Process Fork Template)".to_string()
@@ -272,7 +261,7 @@ impl SystemScanner {
             } else if cmd_lower.contains("storage") {
                 "Utility (Storage Service)".to_string()
             } else {
-                "Utility Process".to_string()
+                "Utility Worker".to_string()
             }
         } else if cmd_lower.contains("crashpad-handler") {
             "Crash Reporter / Handler".to_string()
@@ -283,9 +272,9 @@ impl SystemScanner {
         } else if cmd_lower.contains("extensionhost") || cmd_lower.contains("extension-host") {
             "IDE Extension Host".to_string()
         } else if cmd_lower.contains("steamwebhelper") {
-            "Steam Web Helper Worker".to_string()
+            "Steam WebHelper Worker".to_string()
         } else if cmd_lower.contains("gpu-screen-recorder") {
-            "Replay / Screen Recorder Worker".to_string()
+            "Replay / Screen Buffer Worker".to_string()
         } else if exe_lower.contains("discord") && !cmd_lower.contains("--type=") {
             "Discord Main Client".to_string()
         } else if exe_lower.contains("helium") && !cmd_lower.contains("--type=") {

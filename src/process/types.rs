@@ -8,16 +8,28 @@ pub enum Category {
 }
 
 impl Category {
+    #[allow(dead_code)]
     pub fn title(&self) -> &'static str {
         match self {
-            Category::Apps => "Aplikacje Użytkownika",
-            Category::Desktop => "Środowisko Hyprland & Desktop",
-            Category::Development => "Narzędzia Developerskie & Terminale",
-            Category::Background => "Usługi Tła Użytkownika",
-            Category::System => "System i Jądro",
+            Category::Apps => "User Applications",
+            Category::Desktop => "Desktop & Compositor",
+            Category::Development => "Dev Tools & CLI",
+            Category::Background => "Background Services",
+            Category::System => "System & Kernel Core",
         }
     }
 
+    pub fn short_title(&self) -> &'static str {
+        match self {
+            Category::Apps => "Apps",
+            Category::Desktop => "Desktop",
+            Category::Development => "Dev Tools",
+            Category::Background => "Services",
+            Category::System => "System",
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn icon(&self) -> &'static str {
         match self {
             Category::Apps => "🌐",
@@ -42,6 +54,7 @@ pub struct ProcessInfo {
     pub swap_kb: u64,
     pub threads: u32,
     pub role_hint: String,
+    #[allow(dead_code)]
     pub utime_stime: u64,
     pub cpu_usage: f32,
 }
@@ -59,6 +72,7 @@ pub struct AppGroup {
     pub total_uss_kb: u64,
     pub total_swap_kb: u64,
     pub total_cpu: f32,
+    #[allow(dead_code)]
     pub main_pid: u32,
 }
 
@@ -87,7 +101,7 @@ impl AppGroup {
         self.total_swap_kb = self.processes.iter().map(|p| p.swap_kb).sum();
         self.total_cpu = self.processes.iter().map(|p| p.cpu_usage).sum();
         
-        // Find a representative main PID (lowest PID or first parent)
+        // Find representative main PID
         if let Some(first) = self.processes.iter().min_by_key(|p| p.pid) {
             self.main_pid = first.pid;
         }
@@ -110,14 +124,6 @@ pub struct SystemMemoryInfo {
 impl SystemMemoryInfo {
     pub fn used_kb(&self) -> u64 {
         self.total_kb.saturating_sub(self.available_kb)
-    }
-
-    pub fn used_percentage(&self) -> f32 {
-        if self.total_kb == 0 {
-            0.0
-        } else {
-            (self.used_kb() as f32 / self.total_kb as f32) * 100.0
-        }
     }
 
     pub fn pss_percentage(&self) -> f32 {

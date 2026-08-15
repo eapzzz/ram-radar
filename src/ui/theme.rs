@@ -3,112 +3,90 @@ use egui::{Color32, Margin, Painter, Rect, Rounding, Stroke, Vec2, Visuals};
 pub struct Theme;
 
 impl Theme {
-    // Deep Space / Glassmorphism Palette
-    pub const BG_DEEP: Color32 = Color32::from_rgb(10, 13, 20);
-    pub const BG_HEADER: Color32 = Color32::from_rgb(14, 18, 28);
-    pub const BG_CARD: Color32 = Color32::from_rgb(18, 23, 36);
-    pub const BG_CARD_HOVER: Color32 = Color32::from_rgb(25, 32, 50);
-    pub const BG_CARD_ACTIVE: Color32 = Color32::from_rgb(30, 39, 62);
-    pub const BG_SUBROW: Color32 = Color32::from_rgb(13, 17, 26);
-    pub const BG_PILL: Color32 = Color32::from_rgb(28, 36, 56);
+    // ── Background Layers ──
+    pub const BG_BASE: Color32 = Color32::from_rgb(13, 17, 23);       // GitHub-dark inspired
+    pub const BG_SURFACE: Color32 = Color32::from_rgb(22, 27, 34);    // cards
+    pub const BG_SURFACE_HOVER: Color32 = Color32::from_rgb(30, 37, 48);
+    pub const BG_ELEVATED: Color32 = Color32::from_rgb(36, 43, 56);
+    pub const BG_SUBROW: Color32 = Color32::from_rgb(17, 22, 29);
+    pub const BG_BADGE: Color32 = Color32::from_rgb(28, 35, 46);
 
-    // Borders & Glass
-    pub const BORDER_GLASS: Color32 = Color32::from_rgb(35, 45, 70);
-    pub const BORDER_GLASS_LIGHT: Color32 = Color32::from_rgb(50, 65, 100);
-    pub const BORDER_ACCENT: Color32 = Color32::from_rgb(99, 102, 241);
+    // ── Borders ──
+    pub const BORDER_DEFAULT: Color32 = Color32::from_rgb(48, 54, 61);
+    pub const BORDER_MUTED: Color32 = Color32::from_rgb(36, 42, 50);
 
-    // Typography
-    pub const TEXT_TITLE: Color32 = Color32::from_rgb(255, 255, 255);
-    pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(241, 245, 249);
-    pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(148, 163, 184);
-    pub const TEXT_MUTED: Color32 = Color32::from_rgb(100, 116, 139);
+    // ── Text ──
+    pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(230, 237, 243);
+    pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(139, 148, 158);
+    pub const TEXT_MUTED: Color32 = Color32::from_rgb(110, 118, 129);
 
-    // Cyberpunk / Neon Accents
-    pub const ACCENT_CYAN: Color32 = Color32::from_rgb(56, 189, 248);
-    pub const ACCENT_PURPLE: Color32 = Color32::from_rgb(168, 85, 247);
-    pub const ACCENT_VIOLET: Color32 = Color32::from_rgb(139, 92, 246);
-    pub const ACCENT_EMERALD: Color32 = Color32::from_rgb(52, 211, 153);
-    pub const ACCENT_ROSE: Color32 = Color32::from_rgb(251, 113, 133);
-    pub const ACCENT_AMBER: Color32 = Color32::from_rgb(251, 191, 36);
-    pub const ACCENT_BLUE: Color32 = Color32::from_rgb(59, 130, 246);
+    // ── Accent palette (harmonious, not neon chaos) ──
+    pub const ACCENT_BLUE: Color32 = Color32::from_rgb(88, 166, 255);
+    pub const ACCENT_GREEN: Color32 = Color32::from_rgb(63, 185, 80);
+    pub const ACCENT_PURPLE: Color32 = Color32::from_rgb(163, 113, 247);
+    pub const ACCENT_ORANGE: Color32 = Color32::from_rgb(210, 153, 34);
+    pub const ACCENT_RED: Color32 = Color32::from_rgb(248, 81, 73);
+    pub const ACCENT_TEAL: Color32 = Color32::from_rgb(57, 211, 183);
 
     pub fn apply_to_ctx(ctx: &egui::Context) {
         let mut visuals = Visuals::dark();
-        visuals.panel_fill = Self::BG_DEEP;
-        visuals.window_fill = Self::BG_DEEP;
-        visuals.faint_bg_color = Self::BG_HEADER;
-        visuals.extreme_bg_color = Color32::from_rgb(7, 9, 14);
+        visuals.panel_fill = Self::BG_BASE;
+        visuals.window_fill = Self::BG_BASE;
+        visuals.faint_bg_color = Self::BG_SURFACE;
+        visuals.extreme_bg_color = Color32::from_rgb(8, 11, 16);
 
-        // Buttons and Widgets
-        visuals.widgets.noninteractive.bg_fill = Self::BG_CARD;
-        visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, Self::BORDER_GLASS);
+        visuals.widgets.noninteractive.bg_fill = Self::BG_SURFACE;
+        visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, Self::BORDER_MUTED);
         visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, Self::TEXT_PRIMARY);
-        visuals.widgets.noninteractive.rounding = Rounding::same(8.0);
+        visuals.widgets.noninteractive.rounding = Rounding::same(6.0);
 
-        visuals.widgets.inactive.bg_fill = Self::BG_PILL;
-        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, Self::BORDER_GLASS);
-        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, Self::TEXT_PRIMARY);
-        visuals.widgets.inactive.rounding = Rounding::same(8.0);
+        visuals.widgets.inactive.bg_fill = Self::BG_SURFACE;
+        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, Self::BORDER_MUTED);
+        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, Self::TEXT_SECONDARY);
+        visuals.widgets.inactive.rounding = Rounding::same(6.0);
 
-        visuals.widgets.hovered.bg_fill = Self::BG_CARD_HOVER;
-        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, Self::ACCENT_CYAN);
+        visuals.widgets.hovered.bg_fill = Self::BG_SURFACE_HOVER;
+        visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, Self::ACCENT_BLUE);
         visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
-        visuals.widgets.hovered.rounding = Rounding::same(8.0);
+        visuals.widgets.hovered.rounding = Rounding::same(6.0);
 
-        visuals.widgets.active.bg_fill = Self::BG_CARD_ACTIVE;
-        visuals.widgets.active.bg_stroke = Stroke::new(1.5_f32, Self::ACCENT_PURPLE);
+        visuals.widgets.active.bg_fill = Self::BG_ELEVATED;
+        visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, Self::ACCENT_PURPLE);
         visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, Color32::WHITE);
-        visuals.widgets.active.rounding = Rounding::same(8.0);
+        visuals.widgets.active.rounding = Rounding::same(6.0);
 
-        visuals.selection.bg_fill = Color32::from_rgba_premultiplied(99, 102, 241, 70);
-        visuals.selection.stroke = Stroke::new(1.0_f32, Self::ACCENT_VIOLET);
+        visuals.selection.bg_fill = Color32::from_rgba_premultiplied(88, 166, 255, 40);
+        visuals.selection.stroke = Stroke::new(1.0_f32, Self::ACCENT_BLUE);
 
         ctx.set_visuals(visuals);
 
         let mut style = (*ctx.style()).clone();
-        style.spacing.item_spacing = Vec2::new(8.0, 6.0);
-        style.spacing.button_padding = Vec2::new(12.0, 7.0);
-        style.spacing.window_margin = Margin::same(14.0);
+        style.spacing.item_spacing = Vec2::new(8.0, 5.0);
+        style.spacing.button_padding = Vec2::new(10.0, 5.0);
+        style.spacing.window_margin = Margin::same(16.0);
         ctx.set_style(style);
     }
 
-    pub fn draw_glass_card(painter: &Painter, rect: Rect, is_hovered: bool, accent: Option<Color32>) {
-        let bg_color = if is_hovered {
-            Self::BG_CARD_HOVER
+    pub fn draw_card(painter: &Painter, rect: Rect, hover: bool, accent: Option<Color32>) {
+        let bg = if hover { Self::BG_SURFACE_HOVER } else { Self::BG_SURFACE };
+        let border = if hover {
+            accent.unwrap_or(Self::ACCENT_BLUE)
         } else {
-            Self::BG_CARD
+            accent.map(|c| Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 60))
+                .unwrap_or(Self::BORDER_DEFAULT)
         };
 
-        let stroke_color = if is_hovered {
-            accent.unwrap_or(Self::ACCENT_CYAN)
-        } else {
-            accent.map(|c| Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 100)).unwrap_or(Self::BORDER_GLASS)
-        };
-
-        // Draw shadow glow if hovered
-        if is_hovered {
-            let glow_rect = rect.expand(1.5);
-            painter.rect_filled(
-                glow_rect,
-                Rounding::same(12.0),
-                Color32::from_rgba_premultiplied(stroke_color.r(), stroke_color.g(), stroke_color.b(), 25),
-            );
-        }
-
-        // Draw main body
-        painter.rect_filled(rect, Rounding::same(10.0), bg_color);
-        painter.rect_stroke(rect, Rounding::same(10.0), Stroke::new(1.0_f32, stroke_color));
+        painter.rect_filled(rect, Rounding::same(8.0), bg);
+        painter.rect_stroke(rect, Rounding::same(8.0), Stroke::new(1.0_f32, border));
     }
 
-    pub fn draw_progress_bar(painter: &Painter, rect: Rect, progress: f32, color: Color32) {
-        // Background track
-        painter.rect_filled(rect, Rounding::same(rect.height() * 0.5), Color32::from_rgb(24, 30, 46));
-        
+    pub fn draw_bar(painter: &Painter, rect: Rect, progress: f32, color: Color32) {
+        painter.rect_filled(rect, Rounding::same(3.0), Color32::from_rgb(22, 27, 34));
         let p = progress.clamp(0.0, 1.0);
-        if p > 0.001 {
-            let fill_width = (rect.width() * p).max(rect.height());
-            let fill_rect = Rect::from_min_size(rect.min, Vec2::new(fill_width, rect.height()));
-            painter.rect_filled(fill_rect, Rounding::same(rect.height() * 0.5), color);
+        if p > 0.005 {
+            let w = (rect.width() * p).max(6.0);
+            let fill = Rect::from_min_size(rect.min, Vec2::new(w, rect.height()));
+            painter.rect_filled(fill, Rounding::same(3.0), color);
         }
     }
 

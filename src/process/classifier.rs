@@ -21,7 +21,7 @@ impl ProcessClassifier {
         // 2. Second pass: recompute totals and sort internal processes
         let mut result: Vec<AppGroup> = app_groups.into_values().collect();
         for group in &mut result {
-            // Sort processes inside group: main / largest PSS first
+            // Sort processes inside group: largest PSS first
             group.processes.sort_by(|a, b| b.pss_kb.cmp(&a.pss_kb));
             group.recompute_totals();
         }
@@ -50,7 +50,7 @@ impl ProcessClassifier {
         if exe.contains("antigravity") || cmd.contains("/opt/antigravity/") || cmd.contains("language_server") || cmd.contains("chrome-devtools-mcp") {
             return (
                 "antigravity_core".to_string(),
-                "Antigravity Assistant & LSP Hub".to_string(),
+                "Antigravity Agent & LSP Hub".to_string(),
                 Category::Apps,
                 "✨",
                 [147, 51, 234], // Deep Purple
@@ -90,7 +90,7 @@ impl ProcessClassifier {
             );
         }
 
-        // 5. Steam & Games
+        // 5. Steam & Gaming
         if exe.contains("steam") || cmd.contains("steamwebhelper") || name.contains("steam") || cmd.contains("gamescope") {
             return (
                 "steam".to_string(),
@@ -101,7 +101,7 @@ impl ProcessClassifier {
             );
         }
 
-        // 6. Dolphin File Manager & KDE
+        // 6. Dolphin File Manager
         if exe.contains("dolphin") || name.contains("dolphin") || cmd.contains("dolphin") {
             return (
                 "dolphin".to_string(),
@@ -116,7 +116,7 @@ impl ProcessClassifier {
         if name.contains("gpu-screen-rec") || cmd.contains("gpu-screen-recorder") {
             return (
                 "gpu_screen_recorder".to_string(),
-                "GPU Screen Recorder (RAM Replay)".to_string(),
+                "GPU Screen Recorder (RAM Buffer)".to_string(),
                 Category::Desktop,
                 "🎥",
                 [239, 68, 68], // Red
@@ -132,14 +132,14 @@ impl ProcessClassifier {
             || name.contains("polkit-kde") || name.to_lowercase() == "xwayland" {
             return (
                 "hyprland_desktop".to_string(),
-                "Hyprland Compositor & Desktop".to_string(),
+                "Hyprland Compositor & Shell".to_string(),
                 Category::Desktop,
                 "🪟",
                 [16, 185, 129], // Emerald
             );
         }
 
-        // 9. Other Web Browsers
+        // 9. Other Web Browsers & Media
         if exe.contains("firefox") || name.contains("firefox") {
             return ("firefox".to_string(), "Firefox Browser".to_string(), Category::Apps, "🦊", [249, 115, 22]);
         }
@@ -150,7 +150,7 @@ impl ProcessClassifier {
             return ("brave".to_string(), "Brave Browser".to_string(), Category::Apps, "🦁", [249, 115, 22]);
         }
         if exe.contains("spotify") || name.contains("spotify") {
-            return ("spotify".to_string(), "Spotify".to_string(), Category::Apps, "🎵", [34, 197, 94]);
+            return ("spotify".to_string(), "Spotify Music".to_string(), Category::Apps, "🎵", [34, 197, 94]);
         }
 
         // 10. Terminals & Shells
@@ -158,7 +158,7 @@ impl ProcessClassifier {
             || name == "zsh" || name == "bash" || name == "fish" || name == "tmux" {
             return (
                 "terminal_shell".to_string(),
-                "Terminale & Powłoki (CLI)".to_string(),
+                "Terminals & Shells (CLI)".to_string(),
                 Category::Development,
                 "💻",
                 [245, 158, 11], // Amber
@@ -169,7 +169,7 @@ impl ProcessClassifier {
         if name.starts_with("rustc") || name.starts_with("cargo") || name == "gcc" || name == "clang" || name == "cc1" || name == "ld" {
             return (
                 "build_tools".to_string(),
-                "Kompilatory & Build Tools (Rust/GCC)".to_string(),
+                "Compilers & Build Tools (Rust/GCC/LLVM)".to_string(),
                 Category::Development,
                 "🔨",
                 [234, 88, 12],
@@ -178,7 +178,7 @@ impl ProcessClassifier {
         if name == "node" || name.starts_with("python") {
             return (
                 format!("runtime_{}", name),
-                format!("Środowisko uruchomieniowe ({})", name),
+                format!("Runtime Environment ({})", name),
                 Category::Development,
                 "📦",
                 [59, 130, 246],
@@ -189,7 +189,7 @@ impl ProcessClassifier {
         if p.ppid == 2 || name.starts_with("kworker") || name.starts_with("ksoftirqd") || name.starts_with("rcu") {
             return (
                 "kernel_threads".to_string(),
-                "Jądro Linux (Wątki Kworker / Kernel)".to_string(),
+                "Linux Kernel (kworkers & system threads)".to_string(),
                 Category::System,
                 "🐧",
                 [100, 116, 139], // Slate
@@ -201,7 +201,7 @@ impl ProcessClassifier {
             || name == "accounts-daemon" || name == "avahi-daemon" || name == "rtkit-daemon" {
             return (
                 "system_services".to_string(),
-                "Usługi Systemowe (systemd / D-Bus / Sieć)".to_string(),
+                "System Core Services (systemd / D-Bus / Network)".to_string(),
                 Category::System,
                 "🛡️",
                 [148, 163, 184],
@@ -212,7 +212,7 @@ impl ProcessClassifier {
         let clean_name = if !p.name.is_empty() {
             p.name.clone()
         } else if !p.exe.is_empty() {
-            p.exe.split('/').last().unwrap_or("Proces").to_string()
+            p.exe.split('/').last().unwrap_or("Process").to_string()
         } else {
             format!("PID_{}", p.pid)
         };
