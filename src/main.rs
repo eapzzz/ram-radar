@@ -1,0 +1,77 @@
+mod process;
+mod ui;
+
+use std::env;
+use crate::process::classifier::ProcessClassifier;
+use crate::process::scanner::SystemScanner;
+use crate::ui::theme::Theme;
+use crate::ui::RamRadarApp;
+
+fn main() -> eframe::Result<()> {
+    let args: Vec<String> = env::args().collect();
+
+    // Bonus CLI mode if run with --cli or --summary
+    if args.iter().any(|a| a == "--cli" || a == "--summary" || a == "-c") {
+        run_cli_summary();
+        return Ok(());
+    }
+
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_title("RamRadar — Realistyczny Menedżer Pamięci RAM i Procesów")
+            .with_inner_size([1150.0, 780.0])
+            .with_min_inner_size([850.0, 520.0])
+            .with_active(true)
+            .with_decorations(true),
+        ..Default::default()
+    };
+
+    eframe::run_native(
+        "RamRadar",
+        native_options,
+        Box::new(|cc| Ok(Box::new(RamRadarApp::new(cc)))),
+    )
+}
+
+fn run_cli_summary() {
+    println!("\x1b[1;36m===============================================================\x1b[0m");
+    println!("\x1b[1;36m🎯 RamRadar — Realistyczne Zużycie Pamięci RAM (PSS Metrics)\x1b[0m");
+    println!("\x1b[1;36m===============================================================\x1b[0m\n");
+
+    let scanner = SystemScanner::new();
+    let (sys_mem, procs) = scanner.scan_all_processes();
+    let groups = ProcessClassifier::group_processes(procs);
+
+    println!(
+        "Pamięć całkowita: \x1b[1;37m{}\x1b[0m | Używany (System): \x1b[1;33m{}\x1b[0m | Suma PSS procesów: \x1b[1;32m{}\x1b[0m ({:.1}%)",
+        Theme::format_kb(sys_mem.total_kb),
+        Theme::format_kb(sys_mem.used_kb()),
+        Theme::format_kb(sys_mem.total_pss_sum_kb),
+        sys_mem.pss_percentage()
+    );
+    println!(
+        "Dostępna wolna:   \x1b[1;32m{}\x1b[0m | Swap używany:     \x1b[1;35m{}\x1b[0m / {}\n",
+        Theme::format_kb(sys_mem.available_kb),
+        Theme::format_kb(sys_mem.swap_used_kb),
+        Theme::format_kb(sys_mem.swap_total_kb)
+    );
+
+    println!("{:<32} {:<10} {:<14} {:<14} {:<8}", "APLIKACJA / GRUPA", "PROCESY", "REALNY (PSS)", "TRADYCYJNY (RSS)", "% RAM");
+    println!("{:-<84}", "");
+
+    for g in groups.iter().take(20) {
+        if g.total_pss_kb == 0 {
+            continue;
+        }
+        let pss_pct = (g.total_pss_kb as f32 / sys_mem.total_kb.max(1) as f32) * 100.0;
+        println!(
+            "{:<32} {:<10} \x1b[1;36m{:<14}\x1b[0m {:<14} \x1b[1;33m{:>5.1}%\x1b[0m",
+            format!("{} {}", g.icon, g.display_name),
+            format!("{} proc.", g.processes.len()),
+            Theme::format_kb(g.total_pss_kb),
+            Theme::format_kb(g.total_rss_kb),
+            pss_pct
+        );
+    }
+    println!("\n\x1b[90mAby uruchomić pełny interfejs graficzny GUI: ./target/release/ram-radar\x1b[0m\n");
+}
