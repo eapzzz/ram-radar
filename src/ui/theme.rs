@@ -1,4 +1,5 @@
-use egui::{Color32, Margin, Painter, Rect, Rounding, Stroke, Vec2, Visuals};
+use egui::layers::ShapeIdx;
+use egui::{Color32, Margin, Painter, Rect, Rounding, Shape, Stroke, Ui, Vec2, Visuals};
 
 pub struct Theme;
 
@@ -26,7 +27,6 @@ impl Theme {
     pub const ACCENT_PURPLE: Color32 = Color32::from_rgb(163, 113, 247);
     pub const ACCENT_ORANGE: Color32 = Color32::from_rgb(210, 153, 34);
     pub const ACCENT_RED: Color32 = Color32::from_rgb(248, 81, 73);
-    pub const ACCENT_TEAL: Color32 = Color32::from_rgb(57, 211, 183);
 
     pub fn apply_to_ctx(ctx: &egui::Context) {
         let mut visuals = Visuals::dark();
@@ -67,17 +67,32 @@ impl Theme {
         ctx.set_style(style);
     }
 
-    pub fn draw_card(painter: &Painter, rect: Rect, hover: bool, accent: Option<Color32>) {
-        let bg = if hover { Self::BG_SURFACE_HOVER } else { Self::BG_SURFACE };
-        let border = if hover {
-            accent.unwrap_or(Self::ACCENT_BLUE)
-        } else {
-            accent.map(|c| Color32::from_rgba_premultiplied(c.r(), c.g(), c.b(), 60))
-                .unwrap_or(Self::BORDER_DEFAULT)
-        };
+    /// Width of the coloured bar drawn down the left edge of a card.
+    const ACCENT_BAR_W: f32 = 3.0;
 
-        painter.rect_filled(rect, Rounding::same(8.0), bg);
-        painter.rect_stroke(rect, Rounding::same(8.0), Stroke::new(1.0_f32, border));
+    /// Reserve the paint slot for a card's left accent bar.
+    ///
+    /// Call this first thing inside a [`egui::Frame`] body and pass the returned
+    /// index to [`Theme::end_accent_bar`] as the last thing in that body.
+    ///
+    /// The two-step dance is required because `Frame::begin` hands its content
+    /// `Ui` a `max_rect` covering *all* remaining space in the parent, not the
+    /// card's eventual size, and it cannot narrow the clip rect either ("we
+    /// don't know final size yet"). Sizing the bar from `ui.max_rect()` up front
+    /// therefore paints a stripe down the whole panel. Reserving a slot and
+    /// filling it from `ui.min_rect()` at the end uses the card's real bounds
+    /// while keeping the bar behind the card's content in z-order.
+    pub fn begin_accent_bar(ui: &Ui) -> ShapeIdx {
+        ui.painter().add(Shape::Noop)
+    }
+
+    /// Fill the slot from [`Theme::begin_accent_bar`] using the card's final
+    /// rect. `inner_margin` must match the frame's inner margin so the bar sits
+    /// flush with the card edge rather than inset by the padding.
+    pub fn end_accent_bar(ui: &Ui, idx: ShapeIdx, inner_margin: f32, color: Color32) {
+        let card = ui.min_rect().expand(inner_margin);
+        let bar = Rect::from_min_size(card.left_top(), Vec2::new(Self::ACCENT_BAR_W, card.height()));
+        ui.painter().set(idx, Shape::rect_filled(bar, Rounding::same(2.0), color));
     }
 
     pub fn draw_bar(painter: &Painter, rect: Rect, progress: f32, color: Color32) {

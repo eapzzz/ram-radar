@@ -18,6 +18,43 @@ struct ScanResult {
     app_groups: Vec<AppGroup>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToastKind {
+    Success,
+    Error,
+}
+
+#[derive(Debug, Clone)]
+pub struct Toast {
+    pub msg: String,
+    pub kind: ToastKind,
+    pub at: Instant,
+}
+
+impl Toast {
+    pub fn success(msg: impl Into<String>) -> Self {
+        Self { msg: msg.into(), kind: ToastKind::Success, at: Instant::now() }
+    }
+
+    pub fn error(msg: impl Into<String>) -> Self {
+        Self { msg: msg.into(), kind: ToastKind::Error, at: Instant::now() }
+    }
+}
+
+/// Clears the "scan in flight" flag on drop, so a panic inside the scan thread
+/// cannot wedge the flag at `true` and silently stop every future refresh.
+struct ScanGuard(Arc<Mutex<bool>>);
+
+impl Drop for ScanGuard {
+    fn drop(&mut self) {
+        match self.0.lock() {
+            Ok(mut g) => *g = false,
+            // Poisoned by a panic while the lock was held: reset it anyway.
+            Err(poisoned) => *poisoned.into_inner() = false,
+        }
+    }
+}
+
 pub struct RamRadarApp {
     scanner: Arc<SystemScanner>,
     scan_rx: Receiver<ScanResult>,
@@ -36,7 +73,7 @@ pub struct RamRadarApp {
     refresh_interval: f32,
     last_refresh: Instant,
     paused: bool,
-    toast: Option<(String, Instant)>,
+    toast: Option<Toast>,
 }
 
 impl RamRadarApp {
@@ -65,7 +102,11 @@ impl RamRadarApp {
             sort_col: SortColumn::PssRealisticRam,
             sort_dir: SortDirection::Descending,
             refresh_interval: 1.0,
-            last_refresh: Instant::now() - Duration::from_secs(10),
+            // Backdate so the first auto-refresh fires immediately. `checked_sub`
+            // because CLOCK_MONOTONIC is near zero when we autostart at boot.
+            last_refresh: Instant::now()
+                .checked_sub(Duration::from_secs(10))
+                .unwrap_or_else(Instant::now),
             paused: false,
             toast: None,
         };
@@ -77,17 +118,22 @@ impl RamRadarApp {
     fn trigger_scan(&self) {
         let flag = Arc::clone(&self.is_scanning);
         {
-            let mut g = flag.lock().unwrap();
+            // Never unwrap on the UI thread: a poisoned lock must not take the
+            // whole app down, and the guard below always resets the flag.
+            let mut g = match flag.lock() {
+                Ok(g) => g,
+                Err(poisoned) => poisoned.into_inner(),
+            };
             if *g { return; }
             *g = true;
         }
         let scanner = Arc::clone(&self.scanner);
         let tx = self.scan_tx.clone();
         thread::spawn(move || {
+            let _guard = ScanGuard(flag);
             let (sys_mem, procs) = scanner.scan_all_processes();
             let app_groups = ProcessClassifier::group_processes(procs);
             let _ = tx.send(ScanResult { sys_mem, app_groups });
-            if let Ok(mut g) = flag.lock() { *g = false; }
         });
     }
 }
@@ -137,21 +183,6 @@ impl eframe::App for RamRadarApp {
 
                 ui.add_space(8.0);
 
-                // Toast
-                if let Some((msg, time)) = &self.toast {
-                    if time.elapsed().as_secs() < 3 {
-                        Frame::none()
-                            .fill(Color32::from_rgb(17, 38, 28))
-                            .stroke(Stroke::new(1.0_f32, Theme::ACCENT_GREEN))
-                            .rounding(Rounding::same(6.0))
-                            .inner_margin(Margin::symmetric(10.0, 5.0))
-                            .show(ui, |ui| {
-                                ui.label(RichText::new(format!("✓ {}", msg)).color(Theme::ACCENT_GREEN));
-                            });
-                        ui.add_space(4.0);
-                    }
-                }
-
                 // Hero Metrics
                 let total_procs: usize = self.app_groups.iter().map(|g| g.processes.len()).sum();
                 HeroMetrics::show(ui, &self.sys_mem, &self.anim, total_procs);
@@ -165,10 +196,43 @@ impl eframe::App for RamRadarApp {
                 // Process List
                 self.render_list(ui);
             });
+
+        // Toast — a floating overlay, so neither its arrival nor its expiry
+        // shifts the layout underneath it.
+        self.render_toast(ctx);
     }
 }
 
 impl RamRadarApp {
+    const TOAST_SECS: f32 = 3.0;
+
+    fn render_toast(&mut self, ctx: &egui::Context) {
+        let Some(toast) = &self.toast else { return };
+        if toast.at.elapsed().as_secs_f32() >= Self::TOAST_SECS {
+            self.toast = None;
+            return;
+        }
+
+        let (accent, bg, glyph) = match toast.kind {
+            ToastKind::Success => (Theme::ACCENT_GREEN, Color32::from_rgb(17, 38, 28), "✓"),
+            ToastKind::Error => (Theme::ACCENT_RED, Color32::from_rgb(45, 20, 20), "✕"),
+        };
+
+        egui::Area::new(egui::Id::new("ram_radar_toast"))
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -18.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                Frame::none()
+                    .fill(bg)
+                    .stroke(Stroke::new(1.0_f32, accent))
+                    .rounding(Rounding::same(6.0))
+                    .inner_margin(Margin::symmetric(10.0, 5.0))
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(format!("{} {}", glyph, toast.msg)).color(accent));
+                    });
+            });
+    }
+
     fn render_list(&mut self, ui: &mut Ui) {
         let query = self.filter.trim().to_lowercase();
 
