@@ -4,7 +4,6 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
-use rayon::prelude::*;
 
 use crate::process::types::{ProcessInfo, SystemMemoryInfo};
 
@@ -18,7 +17,11 @@ fn clk_tck() -> f32 {
     static CACHE: OnceLock<f32> = OnceLock::new();
     *CACHE.get_or_init(|| {
         let v = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
-        if v > 0 { v as f32 } else { 100.0 }
+        if v > 0 {
+            v as f32
+        } else {
+            100.0
+        }
     })
 }
 
@@ -27,7 +30,11 @@ fn num_cpus() -> f32 {
     static CACHE: OnceLock<f32> = OnceLock::new();
     *CACHE.get_or_init(|| {
         let v = unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) };
-        if v > 0 { v as f32 } else { 1.0 }
+        if v > 0 {
+            v as f32
+        } else {
+            1.0
+        }
     })
 }
 
@@ -91,7 +98,7 @@ impl SystemScanner {
         let now = Instant::now();
 
         let processes: Vec<ProcessInfo> = pids
-            .into_par_iter()
+            .into_iter()
             .filter_map(|pid| self.scan_process(pid, now))
             .collect();
 
@@ -198,6 +205,7 @@ impl SystemScanner {
         let role_hint = Self::detect_role(&name, &cmdline, &exe);
 
         Some(ProcessInfo {
+            starttime,
             pid,
             ppid,
             name,
@@ -230,7 +238,10 @@ impl SystemScanner {
         let utime = fields.get(11)?.parse::<u64>().unwrap_or(0);
         let stime = fields.get(12)?.parse::<u64>().unwrap_or(0);
         let threads = fields.get(17)?.parse::<u32>().unwrap_or(1);
-        let starttime = fields.get(19).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+        let starttime = fields
+            .get(19)
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
 
         Some((name, ppid, utime + stime, threads, starttime))
     }
@@ -282,11 +293,19 @@ impl SystemScanner {
             let reader = BufReader::new(file);
             for line in reader.lines().map_while(Result::ok) {
                 if line.starts_with("VmRSS:") {
-                    if let Some(val) = line.split_whitespace().nth(1).and_then(|s| s.parse::<u64>().ok()) {
+                    if let Some(val) = line
+                        .split_whitespace()
+                        .nth(1)
+                        .and_then(|s| s.parse::<u64>().ok())
+                    {
                         rss = val;
                     }
                 } else if line.starts_with("VmSwap:") {
-                    if let Some(val) = line.split_whitespace().nth(1).and_then(|s| s.parse::<u64>().ok()) {
+                    if let Some(val) = line
+                        .split_whitespace()
+                        .nth(1)
+                        .and_then(|s| s.parse::<u64>().ok())
+                    {
                         swap = val;
                     }
                 }

@@ -1,278 +1,385 @@
-use std::collections::HashSet;
-use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
-
-use egui::{Color32, Frame, Margin, RichText, Rounding, Stroke, Ui};
-
-use crate::process::classifier::ProcessClassifier;
-use crate::process::scanner::SystemScanner;
-use crate::process::types::{AppGroup, Category, SortColumn, SortDirection, SystemMemoryInfo};
-use crate::ui::animation::AnimationState;
-use crate::ui::components::{AppCardView, HeaderBar, HeroMetrics, MemoryVisualizer};
-use crate::ui::theme::Theme;
-
-struct ScanResult {
-    sys_mem: SystemMemoryInfo,
-    app_groups: Vec<AppGroup>,
+use super::{theme::*, widgets::*};
+use crate::{
+    model::{Feed, History, Snapshot},
+    process::types::ProcessInfo,
+};
+use egui::{Color32, RichText};
+use std::{collections::HashMap, path::PathBuf, sync::atomic::Ordering};
+#[derive(Clone, Copy, PartialEq, Default)]
+pub enum Page {
+    #[default]
+    Overview,
+    Applications,
+    Hardware,
+    History,
+    Settings,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToastKind {
-    Success,
-    Error,
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Preferences {
+    pub interval: u64,
+    pub scale: f32,
 }
-
-#[derive(Debug, Clone)]
-pub struct Toast {
-    pub msg: String,
-    pub kind: ToastKind,
-    pub at: Instant,
-}
-
-impl Toast {
-    pub fn success(msg: impl Into<String>) -> Self {
-        Self { msg: msg.into(), kind: ToastKind::Success, at: Instant::now() }
-    }
-
-    pub fn error(msg: impl Into<String>) -> Self {
-        Self { msg: msg.into(), kind: ToastKind::Error, at: Instant::now() }
-    }
-}
-
-/// Clears the "scan in flight" flag on drop, so a panic inside the scan thread
-/// cannot wedge the flag at `true` and silently stop every future refresh.
-struct ScanGuard(Arc<Mutex<bool>>);
-
-impl Drop for ScanGuard {
-    fn drop(&mut self) {
-        match self.0.lock() {
-            Ok(mut g) => *g = false,
-            // Poisoned by a panic while the lock was held: reset it anyway.
-            Err(poisoned) => *poisoned.into_inner() = false,
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            interval: 2,
+            scale: 1.0,
         }
     }
 }
-
-pub struct RamRadarApp {
-    scanner: Arc<SystemScanner>,
-    scan_rx: Receiver<ScanResult>,
-    scan_tx: Sender<ScanResult>,
-    is_scanning: Arc<Mutex<bool>>,
-
-    sys_mem: SystemMemoryInfo,
-    app_groups: Vec<AppGroup>,
-
-    anim: AnimationState,
-    expanded: HashSet<String>,
-    active_cat: Option<Category>,
-    filter: String,
-    sort_col: SortColumn,
-    sort_dir: SortDirection,
-    refresh_interval: f32,
-    last_refresh: Instant,
-    paused: bool,
-    toast: Option<Toast>,
+fn config_path() -> PathBuf {
+    let base = std::env::var("XDG_CONFIG_HOME")
+        .unwrap_or_else(|_| format!("{}/.config", std::env::var("HOME").unwrap_or_default()));
+    PathBuf::from(base).join("still/settings.json")
 }
-
-impl RamRadarApp {
-    pub fn new(cc: &eframe::CreationContext) -> Self {
-        Theme::apply_to_ctx(&cc.egui_ctx);
-
-        let scanner = Arc::new(SystemScanner::new());
-        let (tx, rx) = channel();
-
-        let mut expanded = HashSet::new();
-        expanded.insert("antigravity_ide".to_string());
-        expanded.insert("discord".to_string());
-        expanded.insert("helium_browser".to_string());
-
-        let app = Self {
-            scanner,
-            scan_rx: rx,
-            scan_tx: tx,
-            is_scanning: Arc::new(Mutex::new(false)),
-            sys_mem: SystemMemoryInfo::default(),
-            app_groups: Vec::new(),
-            anim: AnimationState::new(),
-            expanded,
-            active_cat: None,
-            filter: String::new(),
-            sort_col: SortColumn::PssRealisticRam,
-            sort_dir: SortDirection::Descending,
-            refresh_interval: 1.0,
-            // Backdate so the first auto-refresh fires immediately. `checked_sub`
-            // because CLOCK_MONOTONIC is near zero when we autostart at boot.
-            last_refresh: Instant::now()
-                .checked_sub(Duration::from_secs(10))
-                .unwrap_or_else(Instant::now),
-            paused: false,
-            toast: None,
-        };
-
-        app.trigger_scan();
-        app
-    }
-
-    fn trigger_scan(&self) {
-        let flag = Arc::clone(&self.is_scanning);
-        {
-            // Never unwrap on the UI thread: a poisoned lock must not take the
-            // whole app down, and the guard below always resets the flag.
-            let mut g = match flag.lock() {
-                Ok(g) => g,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            if *g { return; }
-            *g = true;
-        }
-        let scanner = Arc::clone(&self.scanner);
-        let tx = self.scan_tx.clone();
-        thread::spawn(move || {
-            let _guard = ScanGuard(flag);
-            let (sys_mem, procs) = scanner.scan_all_processes();
-            let app_groups = ProcessClassifier::group_processes(procs);
-            let _ = tx.send(ScanResult { sys_mem, app_groups });
-        });
-    }
+pub struct StillApp {
+    pub feed: Feed,
+    pub snapshot: Snapshot,
+    pub history: History,
+    pub page: Page,
+    pub search: String,
+    pub sort: usize,
+    pub ascending: bool,
+    pub selected: Option<String>,
+    pub confirm: Option<ProcessInfo>,
+    pub notice: String,
+    pub preferences: Preferences,
+    pub paused: bool,
+    pub only_apps: bool,
+    pub baselines: HashMap<String, u64>,
+    pub screenshot: Option<PathBuf>,
+    pub samples: usize,
 }
-
-impl eframe::App for RamRadarApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Process scan results
-        while let Ok(result) = self.scan_rx.try_recv() {
-            self.sys_mem = result.sys_mem;
-            self.app_groups = result.app_groups;
-            let pss_gb = self.sys_mem.total_pss_sum_kb as f32 / (1024.0 * 1024.0);
-            self.anim.push_sample(pss_gb);
+impl StillApp {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        super::theme::setup(&cc.egui_ctx);
+        egui_extras::install_image_loaders(&cc.egui_ctx);
+        let mut preferences: Preferences = std::fs::read(config_path())
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default();
+        preferences.interval = preferences.interval.clamp(1, 10);
+        if !preferences.scale.is_finite() {
+            preferences.scale = 1.0
         }
-
-        // Smooth animations
-        let pss_gb = self.sys_mem.total_pss_sum_kb as f32 / (1024.0 * 1024.0);
-        let used_gb = self.sys_mem.used_kb() as f32 / (1024.0 * 1024.0);
-        self.anim.update(pss_gb, used_gb);
-
-        // Auto refresh
-        if !self.paused && self.last_refresh.elapsed().as_secs_f32() >= self.refresh_interval {
-            self.trigger_scan();
-            self.last_refresh = Instant::now();
-        }
-
-        ctx.request_repaint_after(Duration::from_millis(100));
-
-        egui::CentralPanel::default()
-            .frame(Frame::none().fill(Theme::BG_BASE).inner_margin(Margin::same(14.0)))
-            .show(ctx, |ui| {
-                // Header
-                let mut manual_refresh = false;
-                HeaderBar::show(
-                    ui,
-                    &mut self.active_cat,
-                    &mut self.filter,
-                    &mut self.sort_col,
-                    &mut self.sort_dir,
-                    &mut self.refresh_interval,
-                    &mut self.paused,
-                    || manual_refresh = true,
-                );
-                if manual_refresh {
-                    self.trigger_scan();
-                    self.last_refresh = Instant::now();
-                }
-
-                ui.add_space(8.0);
-
-                // Hero Metrics
-                let total_procs: usize = self.app_groups.iter().map(|g| g.processes.len()).sum();
-                HeroMetrics::show(ui, &self.sys_mem, &self.anim, total_procs);
-                ui.add_space(8.0);
-
-                // Memory Visualizer
-                let refs: Vec<&AppGroup> = self.app_groups.iter().collect();
-                MemoryVisualizer::show(ui, &self.sys_mem, &refs, &self.anim);
-                ui.add_space(8.0);
-
-                // Process List
-                self.render_list(ui);
-            });
-
-        // Toast — a floating overlay, so neither its arrival nor its expiry
-        // shifts the layout underneath it.
-        self.render_toast(ctx);
-    }
-}
-
-impl RamRadarApp {
-    const TOAST_SECS: f32 = 3.0;
-
-    fn render_toast(&mut self, ctx: &egui::Context) {
-        let Some(toast) = &self.toast else { return };
-        if toast.at.elapsed().as_secs_f32() >= Self::TOAST_SECS {
-            self.toast = None;
-            return;
-        }
-
-        let (accent, bg, glyph) = match toast.kind {
-            ToastKind::Success => (Theme::ACCENT_GREEN, Color32::from_rgb(17, 38, 28), "✓"),
-            ToastKind::Error => (Theme::ACCENT_RED, Color32::from_rgb(45, 20, 20), "✕"),
-        };
-
-        egui::Area::new(egui::Id::new("ram_radar_toast"))
-            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -18.0))
-            .interactable(false)
-            .show(ctx, |ui| {
-                Frame::none()
-                    .fill(bg)
-                    .stroke(Stroke::new(1.0_f32, accent))
-                    .rounding(Rounding::same(6.0))
-                    .inner_margin(Margin::symmetric(10.0, 5.0))
-                    .show(ui, |ui| {
-                        ui.label(RichText::new(format!("{} {}", glyph, toast.msg)).color(accent));
-                    });
-            });
-    }
-
-    fn render_list(&mut self, ui: &mut Ui) {
-        let query = self.filter.trim().to_lowercase();
-
-        let mut filtered: Vec<&AppGroup> = self.app_groups.iter()
-            .filter(|g| {
-                if let Some(cat) = self.active_cat { if g.category != cat { return false; } }
-                if query.is_empty() { return true; }
-                g.display_name.to_lowercase().contains(&query)
-                    || g.key.contains(&query)
-                    || g.processes.iter().any(|p|
-                        p.name.to_lowercase().contains(&query)
-                        || p.pid.to_string().contains(&query)
-                        || p.role_hint.to_lowercase().contains(&query))
+        preferences.scale = preferences.scale.clamp(0.8, 1.5);
+        cc.egui_ctx.set_zoom_factor(preferences.scale);
+        let args: Vec<_> = std::env::args().collect();
+        let page = args
+            .windows(2)
+            .find(|w| w[0] == "--view")
+            .map(|w| match w[1].as_str() {
+                "applications" => Page::Applications,
+                "hardware" => Page::Hardware,
+                "history" => Page::History,
+                "settings" => Page::Settings,
+                _ => Page::Overview,
             })
-            .collect();
-
-        filtered.sort_by(|a, b| {
-            let ord = match self.sort_col {
-                SortColumn::PssRealisticRam => a.total_pss_kb.cmp(&b.total_pss_kb),
-                SortColumn::RssStandardRam => a.total_rss_kb.cmp(&b.total_rss_kb),
-                SortColumn::UssPrivateRam => a.total_uss_kb.cmp(&b.total_uss_kb),
-                SortColumn::Cpu => a.total_cpu.partial_cmp(&b.total_cpu).unwrap_or(std::cmp::Ordering::Equal),
-                SortColumn::ProcessCount => a.processes.len().cmp(&b.processes.len()),
-                SortColumn::Name => a.display_name.cmp(&b.display_name),
-            };
-            if self.sort_dir == SortDirection::Descending { ord.reverse() } else { ord }
+            .unwrap_or_default();
+        let screenshot = args
+            .windows(2)
+            .find(|w| w[0] == "--screenshot")
+            .map(|w| PathBuf::from(&w[1]));
+        Self {
+            feed: Feed::start(cc.egui_ctx.clone(), preferences.interval),
+            snapshot: Snapshot::default(),
+            history: History::default(),
+            page,
+            search: String::new(),
+            sort: 0,
+            ascending: false,
+            selected: None,
+            confirm: None,
+            notice: String::new(),
+            preferences,
+            paused: false,
+            only_apps: false,
+            baselines: HashMap::new(),
+            screenshot,
+            samples: 0,
+        }
+    }
+    pub fn save_preferences(&mut self) {
+        let p = config_path();
+        let result = (|| -> std::io::Result<()> {
+            std::fs::create_dir_all(p.parent().unwrap())?;
+            let tmp = p.with_extension("tmp");
+            std::fs::write(&tmp, serde_json::to_vec_pretty(&self.preferences)?)?;
+            std::fs::rename(tmp, p)
+        })();
+        self.notice = match result {
+            Ok(()) => "Preferences saved".into(),
+            Err(e) => format!("Could not save preferences: {e}"),
+        };
+    }
+    pub fn export(&mut self) {
+        let base = std::env::var("XDG_DATA_HOME").unwrap_or_else(|_| {
+            format!("{}/.local/share", std::env::var("HOME").unwrap_or_default())
         });
-
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            if filtered.is_empty() {
-                ui.add_space(20.0);
-                ui.vertical_centered(|ui| {
-                    ui.label(RichText::new("No processes match filter").size(13.0).color(Theme::TEXT_MUTED));
+        let dir = PathBuf::from(base).join("still/exports");
+        let p = dir.join(format!("still-{}.csv", self.snapshot.timestamp));
+        self.notice = match std::fs::create_dir_all(&dir)
+            .and_then(|_| std::fs::write(&p, self.history.csv()))
+        {
+            Ok(()) => format!("Saved {}", p.display()),
+            Err(e) => format!("Export failed: {e}"),
+        };
+    }
+    fn sidebar(&mut self, ctx: &egui::Context) {
+        egui::SidePanel::left("navigation")
+            .exact_width(194.0)
+            .resizable(false)
+            .frame(
+                egui::Frame::none()
+                    .fill(Color32::from_rgb(17, 23, 33))
+                    .inner_margin(18.0),
+            )
+            .show(ctx, |ui| {
+                ui.add_space(12.0);
+                ui.horizontal(|ui| {
+                    let (r, _) =
+                        ui.allocate_exact_size(egui::vec2(28.0, 32.0), egui::Sense::hover());
+                    for (i, h) in [12.0, 26.0, 19.0].iter().enumerate() {
+                        ui.painter().rect_filled(
+                            egui::Rect::from_min_size(
+                                egui::pos2(r.left() + i as f32 * 9.0, r.bottom() - h),
+                                egui::vec2(5.0, *h),
+                            ),
+                            2.5,
+                            BLUE,
+                        );
+                    }
+                    ui.label(RichText::new("still").size(30.0).strong());
                 });
+                ui.add_space(4.0);
+                ui.label(muted("A little more clarity.").size(11.0));
+                let compact = ctx.screen_rect().height() < 650.0;
+                ui.add_space(if compact { 8.0 } else { 38.0 });
+                for (i, (page, label)) in [
+                    (Page::Overview, "Overview"),
+                    (Page::Applications, "Applications"),
+                    (Page::Hardware, "Hardware"),
+                    (Page::History, "History"),
+                ]
+                .iter()
+                .enumerate()
+                {
+                    self.nav(ui, *page, label, i);
+                    ui.add_space(3.0);
+                }
+                if compact {
+                    self.nav(ui, Page::Settings, "Preferences", 4);
+                    return;
+                }
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                    ui.label(muted("Still 0.2  /  Linux").size(11.0));
+                    ui.add_space(8.0);
+                    self.nav(ui, Page::Settings, "Preferences", 4);
+                    ui.add_space(20.0);
+                    ui.label(
+                        muted(format!("Up {}", duration(self.snapshot.hardware.uptime))).size(12.0),
+                    );
+                    ui.label(
+                        RichText::new(if self.paused {
+                            "Sampling paused"
+                        } else {
+                            "Local monitoring"
+                        })
+                        .color(if self.paused { PEACH } else { GREEN })
+                        .size(12.0),
+                    );
+                });
+            });
+    }
+    fn nav(&mut self, ui: &mut egui::Ui, page: Page, label: &str, index: usize) {
+        let active = self.page == page;
+        let response = egui::Frame::none()
+            .fill(if active {
+                Color32::from_rgb(35, 49, 69)
             } else {
-                for group in filtered {
-                    AppCardView::render_group(ui, group, &self.sys_mem, &mut self.expanded, &mut self.toast);
-                    ui.add_space(4.0);
+                Color32::TRANSPARENT
+            })
+            .rounding(8.0)
+            .inner_margin(if ui.ctx().screen_rect().height() < 650.0 {
+                6.0
+            } else {
+                10.0
+            })
+            .show(ui, |ui| {
+                ui.set_width(138.0);
+                ui.horizontal(|ui| {
+                    nav_icon(ui, index, if active { BLUE } else { MUTED });
+                    ui.label(RichText::new(label).color(if active { TEXT } else { MUTED }));
+                });
+            })
+            .response;
+        let r = ui.interact(response.rect, ui.id().with(label), egui::Sense::click());
+        if r.clicked() {
+            self.page = page;
+        }
+        r.on_hover_cursor(egui::CursorIcon::PointingHand);
+    }
+    fn details(&mut self, ctx: &egui::Context) {
+        if let Some(key) = self.selected.clone() {
+            let group = self.snapshot.groups.iter().find(|g| g.key == key).cloned();
+            let mut open = true;
+            egui::Window::new("Application details").id(egui::Id::new("details")).open(&mut open).default_width(740.0).resizable(true).show(ctx,|ui|{if let Some(g)=group{
+            ui.horizontal(|ui|{icon(ui,&g.display_name,self.feed.desktop.icon_for(&g.key),40.0);ui.vertical(|ui|{ui.heading(&g.display_name);ui.label(muted(format!("{} processes  /  {} memory",g.processes.len(),kb(g.total_pss_kb))));});});ui.add_space(10.0);ui.label(muted(&g.key));ui.separator();ui.label(muted("Memory is proportional (PSS). ~ means an RSS estimate. CPU: 100% = one logical core.").size(12.0));
+            egui::ScrollArea::vertical().max_height(430.0).show(ui,|ui|{for p in &g.processes{egui::CollapsingHeader::new(format!("{}   PID {}    {}{}    {:.1}% CPU",p.name,p.pid,if p.pss_estimated{"~"}else{""},kb(p.pss_kb),p.cpu_usage)).id_salt(p.pid).show(ui,|ui|{keyvalue(ui,"Parent PID",p.ppid.to_string());keyvalue(ui,"Private memory",if p.pss_estimated{"Unavailable".into()}else{kb(p.uss_kb)});keyvalue(ui,"Resident memory",kb(p.rss_kb));keyvalue(ui,"Swap",kb(p.swap_kb));keyvalue(ui,"Threads",p.threads.to_string());ui.label(muted(&p.role_hint));ui.add(egui::Label::new(RichText::new(&p.cmdline).monospace().size(11.0)).wrap());if ui.button("End this process…").clicked(){self.confirm=Some(p.clone());}});}});
+        }else{ui.label("This application has exited.");}});
+            if !open {
+                self.selected = None
+            }
+        }
+        if let Some(p) = self.confirm.clone() {
+            egui::Window::new("End process?")
+                .collapsible(false)
+                .resizable(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.label(format!(
+                        "Send a termination request to {} (PID {})?",
+                        p.name, p.pid
+                    ));
+                    ui.label(muted("Unsaved work in this process may be lost."));
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            self.confirm = None
+                        }
+                        if ui
+                            .button(RichText::new("End process").color(PEACH))
+                            .clicked()
+                        {
+                            self.notice = match crate::actions::terminate(p.pid, p.starttime) {
+                                Ok(()) => format!("Termination requested for PID {}", p.pid),
+                                Err(e) => format!("Could not end process: {e}"),
+                            };
+                            self.confirm = None;
+                        }
+                    });
+                });
+        }
+    }
+}
+impl eframe::App for StillApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let next = self.feed.latest.lock().ok().and_then(|mut l| l.take());
+        if let Some(s) = next {
+            for g in &s.groups {
+                self.baselines
+                    .entry(g.key.clone())
+                    .or_insert(g.total_pss_kb);
+            }
+            self.baselines
+                .retain(|k, _| s.groups.iter().any(|g| &g.key == k));
+            self.history.push(&s);
+            self.snapshot = s;
+            self.samples += 1;
+        }
+        ctx.input(|i| {
+            for event in &i.events {
+                if let egui::Event::Screenshot { image, .. } = event {
+                    if let Some(path) = self.screenshot.take() {
+                        let bytes: Vec<u8> =
+                            image.pixels.iter().flat_map(|p| p.to_array()).collect();
+                        self.notice = match image::save_buffer(
+                            &path,
+                            &bytes,
+                            image.width() as u32,
+                            image.height() as u32,
+                            image::ColorType::Rgba8,
+                        ) {
+                            Ok(()) => format!("Saved {}", path.display()),
+                            Err(e) => e.to_string(),
+                        };
+                    }
                 }
             }
         });
+        if self.screenshot.is_some() && self.samples >= 3 {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot);
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.selected = None;
+            self.confirm = None;
+        }
+        self.sidebar(ctx);
+        egui::TopBottomPanel::bottom("status")
+            .frame(
+                egui::Frame::none()
+                    .fill(BG)
+                    .inner_margin(egui::Margin::symmetric(22.0, 8.0)),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        muted(if self.notice.is_empty() {
+                            format!(
+                                "{} processes   •   sample {:.0} ms   •   every {} s",
+                                self.snapshot
+                                    .groups
+                                    .iter()
+                                    .map(|g| g.processes.len())
+                                    .sum::<usize>(),
+                                self.snapshot.scan_ms,
+                                self.preferences.interval
+                            )
+                        } else {
+                            self.notice.clone()
+                        })
+                        .size(11.0),
+                    );
+                    if !self.notice.is_empty() && ui.small_button("Dismiss").clicked() {
+                        self.notice.clear();
+                    }
+                });
+            });
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none().fill(BG).inner_margin(28.0))
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(muted("Your computer, understood.").size(12.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .small_button(if self.paused { "Resume" } else { "Pause" })
+                            .clicked()
+                        {
+                            self.paused = !self.paused;
+                            self.history.interrupted = true;
+                            self.feed.paused.store(self.paused, Ordering::Relaxed);
+                        }
+                        ui.label(
+                            RichText::new(if self.paused { "Paused" } else { "Live" })
+                                .size(12.0)
+                                .color(if self.paused { PEACH } else { GREEN }),
+                        );
+                    });
+                });
+                ui.add_space(18.0);
+                if self.samples == 0 {
+                    heading(
+                        ui,
+                        "Getting a clear picture",
+                        "Reading system counters and application memory…",
+                    );
+                    ui.spinner();
+                    return;
+                }
+                egui::ScrollArea::both()
+                    .id_salt("page-scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        ui.set_min_width(550.0);
+                        match self.page {
+                            Page::Overview => self.overview(ui),
+                            Page::Applications => self.applications(ui),
+                            Page::Hardware => self.hardware(ui),
+                            Page::History => self.history_page(ui),
+                            Page::Settings => self.settings(ui),
+                        }
+                    });
+            });
+        self.details(ctx);
     }
 }

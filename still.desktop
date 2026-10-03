@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Still
+GenericName=System Monitor
+Comment=Understand your memory, applications and hardware
+Exec=still
+TryExec=still
+Icon=still
+Terminal=false
+Categories=System;Monitor;
+Keywords=ram;memory;cpu;gpu;process;network;disk;monitor;task;manager;
+StartupWMClass=still
