@@ -26,3 +26,9 @@ An independent reviewer found misleading index-based chart spacing and clipping 
 ## Boundaries
 
 This verifies one AMD Linux machine. NVIDIA NVML, Intel GPU utilization, ARM runtime, remote filesystems and AUR installation are not verified or advertised. GPU absence remains an unavailable reading. No user process was terminated during UI testing; the automated safety test launches its own disposable `sleep` process and verifies a mismatched identity does not signal it.
+
+## Measured overhead
+
+A 20-second idle-window observation of the optimized binary at 2-second sampling measured 6.55% of one CPU core, 51,386 KiB PSS and 95,284 KiB RSS. That is approximately 0.55% of this 12-logical-core CPU. The stripped binary is approximately 7.7 MiB. This is a single local observation with about 420 running processes, not a cross-machine benchmark. Exact PSS scanning dominates the cost; longer sampling intervals reduce it.
+
+The 850 × 620 layout was visually inspected. At 1.5× zoom the page scrolls horizontally and the navigation switches to compact spacing to keep every tab reachable.

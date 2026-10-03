@@ -154,7 +154,8 @@ impl StillApp {
                 });
                 ui.add_space(4.0);
                 ui.label(muted("A little more clarity.").size(11.0));
-                ui.add_space(38.0);
+                let compact = ctx.screen_rect().height() < 650.0;
+                ui.add_space(if compact { 8.0 } else { 38.0 });
                 for (i, (page, label)) in [
                     (Page::Overview, "Overview"),
                     (Page::Applications, "Applications"),
@@ -166,6 +167,10 @@ impl StillApp {
                 {
                     self.nav(ui, *page, label, i);
                     ui.add_space(3.0);
+                }
+                if compact {
+                    self.nav(ui, Page::Settings, "Preferences", 4);
+                    return;
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                     ui.label(muted("Still 0.2  /  Linux").size(11.0));
@@ -196,7 +201,11 @@ impl StillApp {
                 Color32::TRANSPARENT
             })
             .rounding(8.0)
-            .inner_margin(10.0)
+            .inner_margin(if ui.ctx().screen_rect().height() < 650.0 {
+                6.0
+            } else {
+                10.0
+            })
             .show(ui, |ui| {
                 ui.set_width(138.0);
                 ui.horizontal(|ui| {
