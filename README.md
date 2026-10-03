@@ -1,198 +1,98 @@
 <div align="center">
+<img src="assets/still.svg" width="88" alt="Still icon">
 
-# 🎯 RamRadar
-### High-Tech Linux RAM & Process Tree HUD for Arch Linux & Hyprland
+# Still
 
-[![Rust](https://img.shields.io/badge/Rust-1.75%2B-orange.svg?style=for-the-badge&logo=rust)](https://www.rust-lang.org/)
-[![GUI](https://img.shields.io/badge/GUI-egui%20%2F%20eframe-blue.svg?style=for-the-badge)](https://github.com/emilk/egui)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Wayland%20%7C%20X11-darkgreen.svg?style=for-the-badge&logo=linux)](https://archlinux.org/)
-[![Optimized for](https://img.shields.io/badge/Compositor-Hyprland-teal.svg?style=for-the-badge&logo=hyprland)](https://hyprland.org/)
-[![License](https://img.shields.io/badge/License-MIT-purple.svg?style=for-the-badge)](LICENSE)
+**Your computer, understood.**
 
-*An ultra-fast, modern memory inspector and HUD visualizer that reveals the truth about your RAM consumption using Proportional Set Size (PSS) metrics.*
+A native Linux system monitor for seeing what uses your resources — and when.
 
-[Features](#-key-features) • [Why PSS?](#-why-ramradar-pss-vs-rss) • [Installation](#-installation--building) • [Usage](#-usage) • [Hyprland Setup](#-hyprland-desktop-integration) • [Architecture](#-project-architecture)
-
----
+[![Check Still](https://github.com/eapzzz/still/actions/workflows/ci.yml/badge.svg)](https://github.com/eapzzz/still/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 </div>
 
-## 💡 Why RamRadar? (PSS vs RSS)
+![Still overview, captured on a live Linux system](docs/screenshots/overview.png)
 
-Most traditional Linux task managers (such as standard `ps`, `top`, `htop`, or basic desktop monitors) display memory usage using **RSS** (*Resident Set Size*).
+Still brings memory, CPU, graphics, storage and networking into one calm desktop app. Written in Rust with egui. No Electron, local web server, account or background daemon.
 
-> **The RSS Problem:** RSS duplicates shared memory (`.so` libraries, IPC buffers, font caches) across every single child process. When modern browsers (Chromium, Firefox) or apps (Discord, Spotify, IDEs) spawn 20+ subprocesses, shared libraries are counted 20 times over, presenting a distorted, artificially inflated RAM consumption.
+## A clearer picture
 
-```
-                  ┌────────────────────────────────────────────────────────┐
-Traditional RSS   │ [App Private Memory] + [Shared Libs (Counted 100%)]   │ -> Lies & overcounts!
-                  └────────────────────────────────────────────────────────┘
-                  ┌────────────────────────────────────────────────────────┐
-Real PSS (Radar)  │ [App Private (USS)] + [Shared Libs / Sharing Procs]   │ -> 100% Accurate!
-                  └────────────────────────────────────────────────────────┘
-```
+- **Overview:** resource totals, recent activity, largest consumers and observations grounded in Linux pressure counters.
+- **Applications:** search by name, executable or PID; sort by memory, CPU, process count, name or session growth. Installed desktop metadata supplies names and icons. Helpers within a known installation directory are included with their application; other processes are grouped by executable.
+- **Process details:** proportional, resident and private memory, swap, CPU, threads, parent PID and command line. Send `SIGTERM` to one process after confirmation. A stable pidfd and start-time check protect against PID reuse.
+- **Hardware:** per-core CPU, load averages, GPU/VRAM, local filesystem space, physical disk throughput, network interfaces, temperatures, fans, power and battery readings where exposed by the system.
+- **History:** up to ten minutes of session data, timestamp-scaled charts, visible sampling gaps and CSV export. Missing GPU readings remain empty in the export.
+- **Preferences:** 1/2/5/10-second sampling and interface scaling, saved locally. Pause collection when you need to inspect a snapshot.
 
-**RamRadar delivers total accuracy:**
-- Parses `/proc/[pid]/smaps_rollup` at multi-core speeds.
-- Proportional memory distribution formula:
-  $$\text{PSS} = \text{Private Memory (USS)} + \sum \frac{\text{Shared Memory Segment}}{\text{Number of Processes Sharing Segment}}$$
-- Shows **the exact amount of physical memory reclaimed** if an application is closed.
+## Install
 
----
+Linux with a current stable Rust toolchain, an OpenGL-capable driver, and either Wayland or X11.
 
-## ✨ Key Features
+On Arch:
 
-- 🎯 **Interactive Sonar Radar Visualizer** — Real-time 60 FPS sweeping radar with phosphor trails, expanding sonar pulses, and target blips plotted dynamically in polar coordinates according to memory weight.
-- 🧠 **Accurate PSS Memory Metrics** — No more phantom RAM numbers; exact allocation tracking for every process.
-- 🌲 **Smart Multi-Process Tree Grouping** — Automatically consolidates multi-threaded trees (Chromium, Discord, Spotify, VS Code, Antigravity IDE, Game processes) into clean, expandable application cards.
-- 🎨 **Futuristic Obsidian & Cyber Glass Theme** — Deep dark obsidian palette (`#07090E`), glowing neon accents, and smooth animations optimized for Wayland and Hyprland.
-- ⚡ **Parallel Multi-Core Engine (Rayon)** — Concurrent scanning of hundreds of processes from `/proc` in sub-millisecond execution times.
-- 📊 **Bandwidth Visualizer & Live Oscilloscope** — Segmented multi-color memory band paired with a real-time spline waveform trendline.
-- 🏷️ **Intelligent System Categorization**:
-  - 🌐 *User Applications* (Web Browsers, Media, Messengers)
-  - 🪟 *Desktop & Wayland Stack* (Hyprland, Waybar, SwayNC, Rofi, Pipewire, Portals)
-  - 💻 *Dev Tools & CLI* (Terminals, Compilers, Cargo, Git, Runtimes)
-  - ⚙️ *Background Services* (Daemons, Agents, Helpers)
-  - 🛡️ *System & Kernel Core* (systemd, udev, kworkers, D-Bus)
-- 🔍 **Instant Search & Multi-Column Sorting** — Real-time filtering by name, role, or PID with instant sorting across PSS, RSS, USS, CPU %, or Process Count.
-- 🛑 **Process Management & Signal Dispatch** — Terminate individual subprocesses or whole application trees (`SIGTERM`) directly from the HUD.
-- 🖥️ **Terminal Summary (CLI Mode)** — Built-in ASCII dashboard for instant terminal inspections without GUI overhead.
+```sh
+sudo pacman -S --needed rust base-devel libxkbcommon wayland libglvnd
 
----
-
-## 🖥️ Terminal Mode (CLI Summary)
-
-Want a fast terminal report without launching the GUI? Use the built-in CLI flag:
-
-```bash
-ram-radar --cli
+git clone https://github.com/eapzzz/still.git
+cd still
+./install.sh
 ```
 
-#### Sample Output:
-```text
-===============================================================
-🎯 RamRadar — Realistic Linux RAM Consumption (PSS Metrics)
-===============================================================
+Press **Super**, type **Still**, and launch it. The installer places the binary in `~/.local/bin`, and the desktop entry and icon in your XDG data directory. Its desktop entry uses an absolute executable path, so launcher PATH differences do not matter. Python 3 is needed only by the local install/uninstall scripts.
 
-Total RAM: 31.12 GB | System Used: 8.45 GB | Sum PSS: 6.20 GB (19.9%)
-Available: 22.67 GB | Swap Used:   0 KB / 8.00 GB
-
-APPLICATION / GROUP              PROCS      REAL (PSS)      TRADITIONAL (RSS) % RAM   
---------------------------------------------------------------------------------------
-🌐 Google Chrome                 18 procs   2.10 GB         5.80 GB           6.7%
-⚡ Antigravity IDE               8 procs    890.0 MB        1.60 GB           2.8%
-💬 Discord                       6 procs    620.4 MB        1.10 GB           2.0%
-🎵 Spotify Music                 4 procs    380.2 MB        650.0 MB          1.2%
-🪟 Hyprland Compositor & Shell   1 procs    320.1 MB        410.2 MB          1.0%
-💻 Terminals & Shells (CLI)      3 procs    140.5 MB        210.0 MB          0.4%
+```sh
+./run.sh                 # Run from the checkout; builds if needed
+still --summary          # Terminal resource summary
+still --json             # Machine-readable snapshot
+still --help
+./uninstall.sh           # Keeps preferences and exported history
 ```
 
----
+You can override the binary prefix with `PREFIX`. `XDG_DATA_HOME` controls desktop integration. An experimental Arch VCS recipe is in [`packaging/PKGBUILD`](packaging/PKGBUILD); **Still is not published on AUR yet**. Review and test it in a clean chroot before an AUR submission. Only x86_64 has been runtime-tested here; aarch64 is a packaging target, not a verified build.
 
-## 🚀 Installation & Building
+## Reading the numbers
 
-### Prerequisites:
-- **Rust Toolchain** (`rustup` / `cargo`):
-  ```bash
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-  ```
-- **Wayland / System Graphics Libraries** (e.g., on Arch Linux):
-  ```bash
-  sudo pacman -S --needed base-devel wayland libxkbcommon
-  ```
+| Measurement | Meaning |
+| --- | --- |
+| System memory | `MemTotal − MemAvailable`; includes more than applications |
+| Application memory | PSS: shared pages apportioned among processes, with `~` for RSS fallbacks when access is denied |
+| Private memory | USS from private clean + dirty pages; unavailable when only RSS can be read |
+| Process CPU | 100% equals one logical core, so a multi-core app can exceed 100% |
+| System CPU | Busy time across all logical cores, from counter differences |
+| Pressure | Time tasks waited for a resource, averaged over the last ten seconds |
+| Growth | Change since a currently running application was first observed in this session; not a leak diagnosis |
 
-### Clone & Build:
+PSS is **not** a promise of how much RAM closing an app will reclaim. The process list is sampled over time, not atomically. Application estimates need not add up to system memory. Buffers/cache and available memory overlap. CPU and throughput need two samples to become meaningful.
 
-```bash
-git clone https://github.com/eapzzz/ram-radar.git
-cd ram-radar
+See the Linux kernel documentation for [procfs memory accounting](https://docs.kernel.org/filesystems/proc.html) and [pressure stall information](https://docs.kernel.org/accounting/psi.html).
 
-# Compile optimized release binary with LTO and binary stripping
-cargo build --release
+## Hardware support and limits
+
+- CPU, memory, processes, networking and disk counters come from procfs; sensors come from hwmon and power_supply.
+- GPU discovery uses DRM. Utilization and VRAM currently use the sysfs counters exposed by **amdgpu**. Other DRM GPUs are listed but may show unavailable metrics. There is no NVIDIA NVML backend yet.
+- GPU names use the optional local `pci.ids` database (`hwdata` on Arch), with PCI identifiers as fallback.
+- Filesystem space covers local ext3/ext4, Btrfs, XFS, FAT, F2FS, NTFS3 and exFAT mounts, once per device. Remote filesystems are skipped to avoid blocking on a disconnected server. Space refreshes every fifteen samples.
+- Virtual network interfaces can count the same traffic twice; the Hardware page shows each interface separately.
+- Desktop metadata is indexed at startup. Restart Still after installing applications or changing icon themes. Unknown programs receive a distinct monogram.
+- History is in-memory and ends when the app exits. There is no per-process network accounting, SMART drive health, historical database or notification daemon.
+
+## Performance and privacy
+
+Sampling runs on one background thread. The UI repaints on input or a new sample, and only the newest snapshot is retained. History is capped at 601 samples. Exact PSS scans have a real kernel cost: use a 5- or 10-second interval on busy systems. Still is designed to stay small, not to claim zero overhead.
+
+No usage data leaves your machine. Settings live at `$XDG_CONFIG_HOME/still/settings.json` (normally `~/.config/still`). CSV files go to `$XDG_DATA_HOME/still/exports` (normally `~/.local/share/still/exports`) and contain system metrics, not process command lines. The JSON CLI includes executable paths; review it before sharing.
+
+## Development
+
+```sh
+cargo fmt --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --release --locked
+desktop-file-validate still.desktop
 ```
 
-The optimized binary is compiled to `target/release/ram-radar`.
+Collectors, desktop metadata, process accounting and the UI are separate modules. See [CONTRIBUTING.md](CONTRIBUTING.md) and [validation notes](docs/VALIDATION.md).
 
----
-
-## 🎮 Usage
-
-### Launching the Graphical HUD:
-```bash
-./run.sh
-# or directly:
-./target/release/ram-radar
-```
-
-### CLI Terminal Mode:
-```bash
-./target/release/ram-radar --cli
-```
-
----
-
-## 🪟 Hyprland Desktop Integration
-
-### Keybind Configuration:
-Add the following line to your Hyprland configuration (`~/.config/hypr/hyprland.conf`) to launch RamRadar via hotkey (e.g., `$mainMod + Shift + ESC`):
-
-```ini
-bind = $mainMod SHIFT, Escape, exec, ram-radar
-```
-
-### Floating Window Rules:
-To render RamRadar as a centered, translucent floating HUD panel:
-
-```ini
-windowrulev2 = float, class:^(ram-radar)$
-windowrulev2 = size 1180 800, class:^(ram-radar)$
-windowrulev2 = center, class:^(ram-radar)$
-windowrulev2 = opacity 0.96 0.92, class:^(ram-radar)$
-```
-
-### Desktop Application Launcher (`.desktop`):
-The launcher and the keybind above both call `ram-radar` by name, so put the
-binary on your `PATH` first, then install the desktop entry:
-
-```bash
-install -Dm755 target/release/ram-radar ~/.local/bin/ram-radar
-
-cp ram-radar.desktop ~/.local/share/applications/
-update-desktop-database ~/.local/share/applications/ 2>/dev/null || true
-```
-
----
-
-## 🏗️ Project Architecture
-
-```text
-ram-radar/
-├── Cargo.toml                  # Dependencies & LTO release profile
-├── ram-radar.desktop           # Linux Desktop launcher entry
-├── run.sh                      # Helper run script
-├── README.md                   # Documentation
-└── src/
-    ├── main.rs                 # Entry point (CLI argument parser & eframe native loop)
-    ├── process/
-    │   ├── mod.rs
-    │   ├── types.rs            # Core models: ProcessInfo, AppGroup, Category, SystemMemoryInfo
-    │   ├── scanner.rs          # Rayon parallel /proc scanner (smaps_rollup, stat, meminfo)
-    │   └── classifier.rs       # Rule-based application grouping & role heuristics
-    └── ui/
-        ├── mod.rs
-        ├── app.rs              # 60 FPS egui state loop, async scanner channel, event handling
-        ├── theme.rs            # Obsidian glass palette, glowing primitives, typography
-        ├── animation.rs        # Radar sweep angle, pulse waves, EMA metric smoothers
-        └── components/
-            ├── radar_view.rs       # Custom Sonar Radar visualizer with range rings & target blips
-            ├── header.rs           # Live pulse HUD header, filter pills, search & sort
-            ├── hero_metrics.rs     # Radar gadget & 4 telemetry metric cards
-            ├── memory_visualizer.rs# Stacked bandwidth band & live spline oscilloscope
-            └── app_card.rs         # Expandable group cards, process roles & kill actions
-```
-
----
-
-## 📜 License
-
-Distributed under the **MIT License**. See [LICENSE](LICENSE) for details.
+Still replaces the earlier RamRadar project. The previous source remains in Git history. MIT licensed; see [LICENSE](LICENSE).

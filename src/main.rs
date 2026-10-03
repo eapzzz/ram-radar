@@ -1,91 +1,77 @@
+mod actions;
+mod desktop;
+mod model;
 mod process;
+mod telemetry;
 mod ui;
-
 use std::env;
-use crate::process::classifier::ProcessClassifier;
-use crate::process::scanner::SystemScanner;
-use crate::ui::theme::Theme;
-use crate::ui::RamRadarApp;
-
 fn main() -> eframe::Result<()> {
-    let args: Vec<String> = env::args().collect();
-
-    // Bonus CLI mode if run with --cli, --summary, or -c
-    if args.iter().any(|a| a == "--cli" || a == "--summary" || a == "-c") {
-        run_cli_summary();
+    let args: Vec<_> = env::args().collect();
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("Still — native Linux system monitor\n\nUsage: still [--summary | --json | --version]\n\n  --summary    Print a live resource summary\n  --json       Print a machine-readable snapshot\n  --version    Show version\n\nThe default opens the desktop app. No root required.");
         return Ok(());
     }
-
-    let native_options = eframe::NativeOptions {
+    if args.iter().any(|a| a == "--version") {
+        println!("Still {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+    if args
+        .iter()
+        .any(|a| matches!(a.as_str(), "--summary" | "--cli" | "-c" | "--json"))
+    {
+        summary(args.iter().any(|a| a == "--json"));
+        return Ok(());
+    }
+    let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_title("RamRadar — Linux PSS RAM & Process Tree Inspector")
-            .with_inner_size([1180.0, 800.0])
-            .with_min_inner_size([880.0, 560.0])
-            .with_active(true)
-            .with_decorations(true),
+            .with_title("Still — System Monitor")
+            .with_app_id("still")
+            .with_inner_size([1280.0, 880.0])
+            .with_min_inner_size([850.0, 620.0]),
         ..Default::default()
     };
-
     eframe::run_native(
-        "RamRadar",
-        native_options,
-        Box::new(|cc| Ok(Box::new(RamRadarApp::new(cc)))),
+        "still",
+        options,
+        Box::new(|cc| Ok(Box::new(ui::StillApp::new(cc)))),
     )
 }
-
-fn run_cli_summary() {
-    println!("\x1b[1;36m===============================================================\x1b[0m");
-    println!("\x1b[1;36m🎯 RamRadar — Realistic Linux RAM Consumption (PSS Metrics)\x1b[0m");
-    println!("\x1b[1;36m===============================================================\x1b[0m\n");
-
-    let scanner = SystemScanner::new();
-    let (sys_mem, procs) = scanner.scan_all_processes();
-    let groups = ProcessClassifier::group_processes(procs);
-
-    println!(
-        "Total RAM: \x1b[1;37m{}\x1b[0m | System Used: \x1b[1;33m{}\x1b[0m | Sum PSS: \x1b[1;32m{}\x1b[0m ({:.1}%)",
-        Theme::format_kb(sys_mem.total_kb),
-        Theme::format_kb(sys_mem.used_kb()),
-        Theme::format_kb(sys_mem.total_pss_sum_kb),
-        sys_mem.pss_percentage()
-    );
-    println!(
-        "Available: \x1b[1;32m{}\x1b[0m | Swap Used:   \x1b[1;35m{}\x1b[0m / {}\n",
-        Theme::format_kb(sys_mem.available_kb),
-        Theme::format_kb(sys_mem.swap_used_kb),
-        Theme::format_kb(sys_mem.swap_total_kb)
-    );
-
-    if sys_mem.estimated_proc_count > 0 {
+fn summary(json: bool) {
+    let mut collector = telemetry::Collector::new();
+    let scanner = process::scanner::SystemScanner::new();
+    collector.sample();
+    scanner.scan_all_processes();
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    let h = collector.sample();
+    let (m, p) = scanner.scan_all_processes();
+    let registry = desktop::DesktopRegistry::load();
+    let groups = process::classifier::ProcessClassifier::group_processes(p, &registry);
+    if json {
+        let value = serde_json::json!({"version":env!("CARGO_PKG_VERSION"),"cpu_percent":h.cpu,"memory_total_kib":m.total_kb,"memory_used_kib":m.used_kb(),"memory_available_kib":m.available_kb,"swap_used_kib":m.swap_used_kb,"download_bytes_per_second":h.down(),"upload_bytes_per_second":h.up(),"gpu":h.gpus.iter().map(|g|serde_json::json!({"name":g.name,"driver":g.driver,"busy_percent":g.busy,"vram_used_bytes":g.used,"vram_total_bytes":g.total})).collect::<Vec<_>>(),"applications":groups.iter().map(|g|serde_json::json!({"name":g.display_name,"executable":g.key,"pss_kib":g.total_pss_kb,"cpu_percent":g.total_cpu,"processes":g.processes.len(),"estimated_processes":g.estimated_procs})).collect::<Vec<_>>()});
+        println!("{}", serde_json::to_string_pretty(&value).unwrap());
+    } else {
         println!(
-            "\x1b[33m⚠  {} process(es) totalling {} are owned by another user: smaps_rollup is\n\
-             \x20  unreadable for them, so RSS is counted in place of PSS (marked ~).\n\
-             \x20  Run as root for exact figures.\x1b[0m\n",
-            sys_mem.estimated_proc_count,
-            Theme::format_kb(sys_mem.estimated_pss_kb)
+            "Still {}\nCPU {:.1}%  |  RAM {:.2} / {:.2} GiB  |  {} logical cores\n",
+            env!("CARGO_PKG_VERSION"),
+            h.cpu,
+            m.used_kb() as f64 / 1048576.0,
+            m.total_kb as f64 / 1048576.0,
+            h.cores.len()
         );
-    }
-
-    println!("{:<32} {:<10} {:<15} {:<15} {:<8}", "APPLICATION / GROUP", "PROCS", "REAL (PSS)", "TRADITIONAL (RSS)", "% RAM");
-    println!("{:-<86}", "");
-
-    for g in groups.iter().take(20) {
-        if g.total_pss_kb == 0 {
-            continue;
+        println!(
+            "{:<32} {:>12} {:>9} {:>7}",
+            "APPLICATION", "PSS MiB", "CPU %", "PIDS"
+        );
+        for g in groups.iter().take(20) {
+            println!(
+                "{:<32} {}{:>10.1} {:>9.1} {:>7}",
+                g.display_name,
+                if g.estimated_procs > 0 { "~" } else { " " },
+                g.total_pss_kb as f64 / 1024.0,
+                g.total_cpu,
+                g.processes.len()
+            );
         }
-        let pss_pct = (g.total_pss_kb as f32 / sys_mem.total_kb.max(1) as f32) * 100.0;
-        println!(
-            "{:<32} {:<10} \x1b[1;36m{:<15}\x1b[0m {:<15} \x1b[1;33m{:>5.1}%\x1b[0m",
-            format!("{} {}", g.icon, g.display_name),
-            format!("{} procs", g.processes.len()),
-            format!(
-                "{}{}",
-                if g.estimated_procs > 0 { "~" } else { "" },
-                Theme::format_kb(g.total_pss_kb)
-            ),
-            Theme::format_kb(g.total_rss_kb),
-            pss_pct
-        );
+        println!("\n~ RSS estimate where PSS is inaccessible. CPU: 100% = one logical core.");
     }
-    println!("\n\x1b[90mTo launch the interactive GUI HUD: ./target/release/ram-radar\x1b[0m\n");
 }

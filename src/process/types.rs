@@ -1,48 +1,23 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Category {
     Apps,
-    Desktop,
-    Development,
     Background,
     System,
 }
 
 impl Category {
-    #[allow(dead_code)]
-    pub fn title(&self) -> &'static str {
-        match self {
-            Category::Apps => "User Applications",
-            Category::Desktop => "Desktop & Compositor",
-            Category::Development => "Dev Tools & CLI",
-            Category::Background => "Background Services",
-            Category::System => "System & Kernel Core",
-        }
-    }
-
     pub fn short_title(&self) -> &'static str {
         match self {
-            Category::Apps => "Apps",
-            Category::Desktop => "Desktop",
-            Category::Development => "Dev Tools",
-            Category::Background => "Services",
-            Category::System => "System",
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn icon(&self) -> &'static str {
-        match self {
-            Category::Apps => "🌐",
-            Category::Desktop => "🪟",
-            Category::Development => "💻",
-            Category::Background => "⚙️",
-            Category::System => "🛡️",
+            Self::Apps => "Application",
+            Self::Background => "Process group",
+            Self::System => "Kernel",
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ProcessInfo {
+    pub starttime: u64,
     pub pid: u32,
     pub ppid: u32,
     pub name: String,
@@ -69,8 +44,6 @@ pub struct AppGroup {
     pub key: String,
     pub display_name: String,
     pub category: Category,
-    pub icon: &'static str,
-    pub accent_color: [u8; 3],
     pub processes: Vec<ProcessInfo>,
     pub total_pss_kb: u64,
     pub total_rss_kb: u64,
@@ -84,13 +57,11 @@ pub struct AppGroup {
 }
 
 impl AppGroup {
-    pub fn new(key: String, display_name: String, category: Category, icon: &'static str, accent_color: [u8; 3]) -> Self {
+    pub fn new(key: String, display_name: String, category: Category) -> Self {
         Self {
             key,
             display_name,
             category,
-            icon,
-            accent_color,
             processes: Vec::new(),
             total_pss_kb: 0,
             total_rss_kb: 0,
@@ -138,28 +109,4 @@ impl SystemMemoryInfo {
     pub fn used_kb(&self) -> u64 {
         self.total_kb.saturating_sub(self.available_kb)
     }
-
-    pub fn pss_percentage(&self) -> f32 {
-        if self.total_kb == 0 {
-            0.0
-        } else {
-            (self.total_pss_sum_kb as f32 / self.total_kb as f32) * 100.0
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortColumn {
-    PssRealisticRam,
-    RssStandardRam,
-    UssPrivateRam,
-    Cpu,
-    ProcessCount,
-    Name,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortDirection {
-    Ascending,
-    Descending,
 }

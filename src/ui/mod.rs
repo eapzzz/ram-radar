@@ -1,6 +1,5 @@
-pub mod animation;
-pub mod app;
-pub mod components;
-pub mod theme;
-
-pub use app::RamRadarApp;
+mod app;
+mod pages;
+mod theme;
+mod widgets;
+pub use app::StillApp;
