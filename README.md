@@ -22,7 +22,7 @@ Still brings memory, CPU, graphics, storage and networking into one calm desktop
 - **Applications:** search by name, executable or PID; sort by memory, CPU, process count, name or session growth. Installed desktop metadata supplies names and icons. Helpers within a known installation directory are included with their application; other processes are grouped by executable.
 - **Process details:** proportional, resident and private memory, swap, CPU, threads, parent PID and command line. Send `SIGTERM` to one process after confirmation. A stable pidfd and start-time check protect against PID reuse.
 - **Hardware:** per-core CPU, load averages, GPU/VRAM, local filesystem space, physical disk throughput, network interfaces, temperatures, fans, power and battery readings where exposed by the system.
-- **History:** up to ten minutes of session data, timestamp-scaled charts, visible sampling gaps and CSV export. Missing GPU readings remain empty in the export.
+- **History:** up to one hour of session data. Choose the last 15 seconds, 1 minute, 5 minutes, or a custom 1–3600-second window in Overview or History; the shared selection is saved locally. Hover to see a sample's local time and named CPU, memory, download and upload values with units. Timestamp-scaled charts show sampling gaps, and CSV export includes the full retained history. Missing GPU readings remain empty in the export.
 - **Preferences:** 1/2/5/10-second sampling and interface scaling, saved locally. Pause collection when you need to inspect a snapshot.
 
 ## Install
@@ -79,7 +79,7 @@ See the Linux kernel documentation for [procfs memory accounting](https://docs.k
 
 ## Performance and privacy
 
-Sampling runs on one background thread. The UI repaints on input or a new sample, and only the newest snapshot is retained. History is capped at 601 samples. Exact PSS scans have a real kernel cost: use a 5- or 10-second interval on busy systems. Still is designed to stay small, not to claim zero overhead.
+Sampling runs on one background thread. The UI repaints on input or a new sample, and only the newest snapshot is retained. History is capped at one hour and 3601 samples. Exact PSS scans have a real kernel cost: use a 5- or 10-second interval on busy systems. Still is designed to stay small, not to claim zero overhead.
 
 No usage data leaves your machine. Settings live at `$XDG_CONFIG_HOME/still/settings.json` (normally `~/.config/still`). CSV files go to `$XDG_DATA_HOME/still/exports` (normally `~/.local/share/still/exports`) and contain system metrics, not process command lines. The JSON CLI includes executable paths; review it before sharing.
 

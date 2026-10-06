@@ -1,5 +1,5 @@
 use super::{
-    app::{Page, StillApp},
+    app::{ChartRange, Page, StillApp},
     theme::*,
     widgets::*,
 };
@@ -7,6 +7,39 @@ use crate::process::types::Category;
 use egui::RichText;
 use egui_extras::{Column, TableBuilder};
 impl StillApp {
+    fn chart_range_controls(&mut self, ui: &mut egui::Ui) {
+        let mut changed = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(muted("Show last"));
+            for (range, label) in [
+                (ChartRange::FifteenSeconds, "15 s"),
+                (ChartRange::OneMinute, "1 min"),
+                (ChartRange::FiveMinutes, "5 min"),
+                (ChartRange::Custom, "Custom"),
+            ] {
+                if ui
+                    .selectable_label(self.preferences.chart_range == range, label)
+                    .clicked()
+                {
+                    self.preferences.chart_range = range;
+                    changed = true;
+                }
+            }
+            if self.preferences.chart_range == ChartRange::Custom {
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut self.preferences.custom_history_seconds)
+                            .range(1..=crate::model::MAX_HISTORY_SECONDS)
+                            .suffix(" s"),
+                    )
+                    .changed();
+                ui.label(muted("Max 1 hour").size(11.0));
+            }
+        });
+        if changed {
+            self.save_preferences();
+        }
+    }
     pub fn overview(&mut self, ui: &mut egui::Ui) {
         heading(
             ui,
@@ -94,26 +127,34 @@ impl StillApp {
         panel(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.strong("Activity");
-                ui.label(muted("Up to 10 minutes").size(11.0));
+                ui.label(
+                    muted(format!(
+                        "Last {}",
+                        time_span(self.preferences.chart_seconds())
+                    ))
+                    .size(11.0),
+                );
             });
+            self.chart_range_controls(ui);
             ui.horizontal(|ui| {
                 ui.colored_label(BLUE, "Memory");
                 ui.colored_label(GREEN, "CPU");
                 ui.label(muted("0–100%").size(11.0));
             });
-            let mem: Vec<_> = self.history.points.iter().map(|p| p.memory).collect();
-            let cpu: Vec<_> = self.history.points.iter().map(|p| p.cpu).collect();
+            let seconds = self.preferences.chart_seconds();
+            let points: Vec<_> = self.history.window(seconds).collect();
+            let mem: Vec<_> = points.iter().map(|p| p.memory).collect();
+            let cpu: Vec<_> = points.iter().map(|p| p.cpu).collect();
             chart(
                 ui,
-                &[(&mem, BLUE), (&cpu, GREEN)],
-                &self
-                    .history
-                    .points
-                    .iter()
-                    .map(|p| (p.time, p.gap))
-                    .collect::<Vec<_>>(),
+                &[
+                    ChartSeries::percent("Memory", &mem, BLUE),
+                    ChartSeries::percent("CPU", &cpu, GREEN),
+                ],
+                &points.iter().map(|p| (p.time, p.gap)).collect::<Vec<_>>(),
                 80.0,
                 100.0,
+                seconds,
             );
             if ui.small_button("Open history").clicked() {
                 self.page = Page::History;
@@ -539,8 +580,9 @@ impl StillApp {
         heading(
             ui,
             "Session history",
-            "Up to 10 minutes of local history. Data stays in memory until you export it.",
+            "Up to 1 hour of local history. Data stays in memory until you export it.",
         );
+        self.chart_range_controls(ui);
         ui.horizontal(|ui| {
             if ui.button("Export CSV").clicked() {
                 self.export()
@@ -551,10 +593,13 @@ impl StillApp {
             )));
         });
         ui.add_space(16.0);
-        let cpu: Vec<_> = self.history.points.iter().map(|p| p.cpu).collect();
-        let mem: Vec<_> = self.history.points.iter().map(|p| p.memory).collect();
-        let down: Vec<_> = self.history.points.iter().map(|p| p.down as f32).collect();
-        let up: Vec<_> = self.history.points.iter().map(|p| p.up as f32).collect();
+        let seconds = self.preferences.chart_seconds();
+        let points: Vec<_> = self.history.window(seconds).collect();
+        let times: Vec<_> = points.iter().map(|p| (p.time, p.gap)).collect();
+        let cpu: Vec<_> = points.iter().map(|p| p.cpu).collect();
+        let mem: Vec<_> = points.iter().map(|p| p.memory).collect();
+        let down: Vec<_> = points.iter().map(|p| p.down as f32).collect();
+        let up: Vec<_> = points.iter().map(|p| p.up as f32).collect();
         panel(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.colored_label(GREEN, "CPU");
@@ -563,15 +608,14 @@ impl StillApp {
             });
             chart(
                 ui,
-                &[(&cpu, GREEN), (&mem, BLUE)],
-                &self
-                    .history
-                    .points
-                    .iter()
-                    .map(|p| (p.time, p.gap))
-                    .collect::<Vec<_>>(),
+                &[
+                    ChartSeries::percent("CPU", &cpu, GREEN),
+                    ChartSeries::percent("Memory", &mem, BLUE),
+                ],
+                &times,
                 190.0,
                 100.0,
+                seconds,
             );
             ui.horizontal(|ui| {
                 ui.label(muted(format!(
@@ -594,15 +638,14 @@ impl StillApp {
             });
             chart(
                 ui,
-                &[(&down, PEACH), (&up, PURPLE)],
-                &self
-                    .history
-                    .points
-                    .iter()
-                    .map(|p| (p.time, p.gap))
-                    .collect::<Vec<_>>(),
+                &[
+                    ChartSeries::rate("Download", &down, PEACH),
+                    ChartSeries::rate("Upload", &up, PURPLE),
+                ],
+                &times,
                 150.0,
                 max,
+                seconds,
             );
         });
         ui.add_space(12.0);

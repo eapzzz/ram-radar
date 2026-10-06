@@ -1,6 +1,6 @@
 use super::{theme::*, widgets::*};
 use crate::{
-    model::{Feed, History, Snapshot},
+    model::{Feed, History, Snapshot, MAX_HISTORY_SECONDS},
     process::types::ProcessInfo,
 };
 use egui::{Color32, RichText};
@@ -19,12 +19,34 @@ pub enum Page {
 pub struct Preferences {
     pub interval: u64,
     pub scale: f32,
+    pub chart_range: ChartRange,
+    pub custom_history_seconds: u64,
+}
+#[derive(Clone, Copy, PartialEq, Default, serde::Serialize, serde::Deserialize)]
+pub enum ChartRange {
+    FifteenSeconds,
+    #[default]
+    OneMinute,
+    FiveMinutes,
+    Custom,
+}
+impl Preferences {
+    pub fn chart_seconds(&self) -> u64 {
+        match self.chart_range {
+            ChartRange::FifteenSeconds => 15,
+            ChartRange::OneMinute => 60,
+            ChartRange::FiveMinutes => 300,
+            ChartRange::Custom => self.custom_history_seconds.clamp(1, MAX_HISTORY_SECONDS),
+        }
+    }
 }
 impl Default for Preferences {
     fn default() -> Self {
         Self {
             interval: 2,
             scale: 1.0,
+            chart_range: ChartRange::default(),
+            custom_history_seconds: 300,
         }
     }
 }
@@ -64,6 +86,9 @@ impl StillApp {
             preferences.scale = 1.0
         }
         preferences.scale = preferences.scale.clamp(0.8, 1.5);
+        preferences.custom_history_seconds = preferences
+            .custom_history_seconds
+            .clamp(1, MAX_HISTORY_SECONDS);
         cc.egui_ctx.set_zoom_factor(preferences.scale);
         let args: Vec<_> = std::env::args().collect();
         let page = args
@@ -381,5 +406,40 @@ impl eframe::App for StillApp {
                     });
             });
         self.details(ctx);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preferences_retain_custom_chart_range_when_saved_again() {
+        let preferences: Preferences =
+            serde_json::from_str(r#"{"chart_range":"Custom","custom_history_seconds":3600}"#)
+                .unwrap();
+        let saved = serde_json::to_value(preferences).unwrap();
+        assert_eq!(saved["chart_range"], "Custom");
+        assert_eq!(saved["custom_history_seconds"], 3600);
+    }
+
+    #[test]
+    fn legacy_preferences_get_a_working_chart_range() {
+        let preferences: Preferences =
+            serde_json::from_str(r#"{"interval":5,"scale":1.2}"#).unwrap();
+        assert_eq!(preferences.interval, 5);
+        assert_eq!(preferences.chart_seconds(), 60);
+    }
+
+    #[test]
+    fn custom_window_is_clamped_to_one_second_and_one_hour() {
+        let mut preferences = Preferences {
+            chart_range: ChartRange::Custom,
+            custom_history_seconds: 0,
+            ..Default::default()
+        };
+        assert_eq!(preferences.chart_seconds(), 1);
+        preferences.custom_history_seconds = u64::MAX;
+        assert_eq!(preferences.chart_seconds(), 3600);
     }
 }
